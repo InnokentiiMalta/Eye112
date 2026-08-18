@@ -169,3 +169,28 @@ export const IconPulse = ({ className }: IconProps) => (
     <path d="M2 12h4l2.5-7 4 14L15 9l1.5 3H22" />
   </svg>
 );
+
+export const IconVideo = ({ className }: IconProps) => (
+  <svg {...base(className)}>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="m10 9.5 5 2.5-5 2.5Z" />
+  </svg>
+);
+
+export const IconPlay = ({ className }: IconProps) => (
+  <svg {...base(className)}>
+    <path d="M7 4.5v15l12-7.5Z" />
+  </svg>
+);
+
+export const IconPause = ({ className }: IconProps) => (
+  <svg {...base(className)}>
+    <path d="M8 5v14M16 5v14" strokeWidth={2.4} />
+  </svg>
+);
+
+export const IconStop = ({ className }: IconProps) => (
+  <svg {...base(className)}>
+    <rect x="6" y="6" width="12" height="12" rx="1.5" />
+  </svg>
+);

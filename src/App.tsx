@@ -21,7 +21,7 @@ export default function App() {
         ready={engine.ready}
       />
 
-      <main className="mx-auto grid max-w-[1660px] gap-3 p-3 lg:grid-cols-[290px_minmax(0,1fr)_330px] lg:p-4">
+      <main className="mx-auto grid max-w-[1720px] gap-3 p-3 lg:grid-cols-[290px_minmax(0,1fr)_375px] lg:p-4">
         <div className="order-3 lg:order-none">
           <Sidebar engine={engine} />
         </div>
@@ -40,8 +40,9 @@ export default function App() {
         <p className="border-t border-line pt-3 font-mono text-[9.5px] leading-relaxed text-dim">
           ПУЛЬСАР·М · демонстрационный стенд: тестовые сцены синтезируются в реальном времени,
           анализ выполняется попиксельно локально (разность с эталоном → пороговая фильтрация →
-          сегментация → спектральная классификация). Для реального видеопотока подключите
-          RTSP-источник к серверу обработки.
+          сегментация → спектральная классификация). Можно загрузить эталон и видео с того же
+          ракурса — расхождения классифицируются по ходу воспроизведения; журнал классификаций
+          поддерживает перемотку. Для сетевого видеопотока подключите RTSP-источник к серверу обработки.
         </p>
       </footer>
     </div>

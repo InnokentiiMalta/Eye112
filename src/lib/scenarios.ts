@@ -1,12 +1,13 @@
 // Синтетические сценарии ЧС: рисуются поверх базовой сцены в реальном времени.
 // Используются для проверки конвейера обнаружения; детерминированы во времени.
 
+import type { WaterSource } from './scenes';
 import type { ScenarioId } from './types';
 
 export const SCENARIOS: Array<{ id: ScenarioId; title: string; hint: string }> = [
   { id: 'calm', title: 'Штатный режим', hint: 'фон без аномалий' },
   { id: 'fire', title: 'Возгорание', hint: 'термоточка → пожар со шлейфом дыма' },
-  { id: 'flood', title: 'Затопление', hint: 'подъём уровня воды' },
+  { id: 'flood', title: 'Затопление', hint: 'разлив от водоисточников, подъём уровня' },
   { id: 'collapse', title: 'Обрушение', hint: 'разрушение конструкций, пыль' },
   { id: 'terrain', title: 'Сдвиг ландшафта', hint: 'оползень, вскрышной грунт' },
 ];
@@ -30,6 +31,7 @@ export function drawScenario(
   t: number,
   W: number,
   H: number,
+  waterSources?: WaterSource[],
 ) {
   ctx.save();
   switch (id) {
@@ -37,7 +39,7 @@ export function drawScenario(
       drawFire(ctx, t, W, H);
       break;
     case 'flood':
-      drawFlood(ctx, t, W, H);
+      drawFlood(ctx, t, W, H, waterSources);
       break;
     case 'collapse':
       drawCollapse(ctx, t, W, H);
@@ -137,51 +139,106 @@ function drawFire(ctx: CanvasRenderingContext2D, t: number, W: number, H: number
   ctx.globalCompositeOperation = 'source-over';
 }
 
-/* ---------------- ЗАТОПЛЕНИЕ: поднимающаяся вода ---------------- */
-function drawFlood(ctx: CanvasRenderingContext2D, t: number, W: number, H: number) {
-  const k = clamp01(t / 14);
-  const topY = H * (0.95 - 0.37 * k);
+/* ---------------- ЗАТОПЛЕНИЕ: разлив от выявленных водоисточников ----------------
+   Сначала у источника образуется растущее «пятно» подтопления, затем оно
+   расширяется и стекает вниз, параллельно поднимается общий уровень воды.   */
+function drawFlood(
+  ctx: CanvasRenderingContext2D,
+  t: number,
+  W: number,
+  H: number,
+  sources?: WaterSource[],
+) {
+  const k = clamp01(t / 18);
+  // фолбэк: если водоисточники не найдены — условный источник снизу по центру
+  const srcs: WaterSource[] =
+    sources && sources.length
+      ? sources
+      : [{ x: 0.5, y: 0.82, w: 1 }];
 
-  ctx.beginPath();
-  ctx.moveTo(0, H);
-  ctx.lineTo(0, topY + Math.sin(t * 1.1) * 2);
-  for (let x = 0; x <= W; x += 14) {
-    const y = topY + Math.sin(x * 0.021 + t * 1.35) * 3.2 + Math.sin(x * 0.047 - t * 0.8) * 2;
-    ctx.lineTo(x, y);
+  /* общий подъём уровня (растёт после того, как пятна немного расширились) */
+  const levelK = clamp01((t - 3) / 15);
+  if (levelK > 0) {
+    const topY = H * (0.97 - 0.34 * levelK);
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    ctx.lineTo(0, topY);
+    for (let x = 0; x <= W; x += 14) {
+      const y = topY + Math.sin(x * 0.021 + t * 1.35) * 3 + Math.sin(x * 0.047 - t * 0.8) * 2;
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(W, H);
+    ctx.closePath();
+    const wg = ctx.createLinearGradient(0, topY, 0, H);
+    wg.addColorStop(0, 'rgba(46,92,160,0.52)');
+    wg.addColorStop(0.45, 'rgba(34,76,142,0.6)');
+    wg.addColorStop(1, 'rgba(20,52,102,0.7)');
+    ctx.fillStyle = wg;
+    ctx.fill();
   }
-  ctx.lineTo(W, H);
-  ctx.closePath();
 
-  const wg = ctx.createLinearGradient(0, topY, 0, H);
-  wg.addColorStop(0, 'rgba(52,96,168,0.56)');
-  wg.addColorStop(0.4, 'rgba(38,80,148,0.64)');
-  wg.addColorStop(1, 'rgba(22,56,108,0.74)');
-  ctx.fillStyle = wg;
-  ctx.fill();
+  /* растущие пятна подтопления у каждого водоисточника (стекают вниз) */
+  for (const s of srcs) {
+    const sx = s.x * W;
+    const sy = s.y * H;
+    const lobes = 5;
+    for (let i = 0; i < lobes; i++) {
+      const phase = clamp01((t - i * 1.4) / 6.5);
+      if (phase <= 0.01) continue;
+      // пятно расширяется вниз и в стороны от источника
+      const spread = (i - (lobes - 1) / 2) / ((lobes - 1) / 2); // -1..1
+      const cx = sx + spread * phase * W * 0.16;
+      const cy = sy + phase * H * 0.2;
+      const r = (16 + 95 * phase) * (0.75 + 0.25 * Math.abs(spread === 0 ? 1 : 0.8));
+      const alpha = 0.5 * (0.35 + 0.65 * phase);
+      const g = ctx.createRadialGradient(cx, cy - r * 0.25, r * 0.1, cx, cy, r);
+      g.addColorStop(0, `rgba(64,110,178,${alpha})`);
+      g.addColorStop(0.55, `rgba(42,86,150,${alpha * 0.85})`);
+      g.addColorStop(1, 'rgba(30,64,120,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, r * 1.25, r * 0.8, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // маркер источника (тонкое кольцо, пока разлив небольшой)
+    if (k < 0.6) {
+      ctx.strokeStyle = `rgba(120,190,255,${0.5 * (1 - k / 0.6)})`;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.arc(sx, sy, 12 + 8 * Math.sin(t * 2.2), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
 
-  // блики на воде
-  ctx.strokeStyle = 'rgba(215,230,245,0.14)';
-  ctx.lineWidth = 1.6;
-  for (let i = 0; i < 9; i++) {
-    const y = topY + 12 + i * 13 + Math.sin(t * 0.8 + i) * 2.4;
+  /* блики на воде */
+  ctx.strokeStyle = 'rgba(215,232,248,0.13)';
+  ctx.lineWidth = 1.5;
+  const hlTop = H * (0.97 - 0.34 * levelK);
+  for (let i = 0; i < 8; i++) {
+    const y = hlTop + 14 + i * 14 + Math.sin(t * 0.8 + i) * 2.4;
     if (y > H - 4) continue;
-    const shift = ((t * 26 + i * 90) % (W + 220)) - 110;
+    const shift = ((t * 26 + i * 110) % (W + 220)) - 110;
     ctx.beginPath();
     ctx.moveTo(shift, y);
-    ctx.lineTo(shift + 60 + (i % 3) * 42, y);
+    ctx.lineTo(shift + 54 + (i % 3) * 44, y);
     ctx.stroke();
   }
 
-  // кромка воды
-  ctx.beginPath();
-  for (let x = 0; x <= W; x += 14) {
-    const y = topY + Math.sin(x * 0.021 + t * 1.35) * 3.2 + Math.sin(x * 0.047 - t * 0.8) * 2;
-    if (x === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
+  /* кромка поднявшейся воды */
+  if (levelK > 0) {
+    const topY = H * (0.97 - 0.34 * levelK);
+    ctx.beginPath();
+    for (let x = 0; x <= W; x += 14) {
+      const y = topY + Math.sin(x * 0.021 + t * 1.35) * 3 + Math.sin(x * 0.047 - t * 0.8) * 2;
+      if (x === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = 'rgba(200,222,240,0.28)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
   }
-  ctx.strokeStyle = 'rgba(205,224,240,0.3)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
 }
 
 /* ---------------- ОБРУШЕНИЕ: завал + оседающее пылевое облако ---------------- */

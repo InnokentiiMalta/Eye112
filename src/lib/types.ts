@@ -44,6 +44,37 @@ export interface EngineStats {
   tick: number;
 }
 
+/** Снимок состояния конвейера в один момент анализа — основа журнала с перемоткой. */
+export interface Snapshot {
+  idx: number;
+  elapsed: number;
+  clock: string;
+  dets: Detection[];
+  peakTemp: number;
+  status: SystemStatus;
+}
+
+/** Строка журнала классификаций (момент, когда набор аномалий изменился). */
+export interface JournalEntry {
+  id: number;
+  histIdx: number;
+  elapsed: number;
+  clock: string;
+  dets: Detection[];
+  peakTemp: number;
+  status: SystemStatus;
+  topLabel: string;
+  count: number;
+}
+
+export interface VideoState {
+  active: boolean;
+  playing: boolean;
+  name: string;
+  duration: number;
+  currentTime: number;
+}
+
 export interface OverlaySettings {
   boxes: boolean;
   heat: boolean;

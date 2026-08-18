@@ -1,5 +1,6 @@
 // Движок комплекса: rAF-цикл отрисовки, периодический прогон конвейера анализа,
-// журнал событий, управление камерами/сценариями, загрузка пользовательских кадров.
+// журнал классификаций с перемоткой, журнал событий, видео-сравнение с эталоном,
+// управление камерами/сценариями, загрузка пользовательских кадров.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -10,16 +11,19 @@ import {
   estimateTempC,
   extractBlobs,
 } from './pipeline';
-import { CAMERAS, drawCover, loadCameraSource } from './scenes';
+import { CAMERAS, drawCover, detectWaterSources, loadCameraSource, type WaterSource } from './scenes';
 import { drawScenario } from './scenarios';
 import type {
   Detection,
   EngineStats,
+  JournalEntry,
   LogEvent,
   OverlaySettings,
   ScenarioId,
   Severity,
+  Snapshot,
   SystemStatus,
+  VideoState,
   ViewMode,
 } from './types';
 import { KLASS_META } from './types';
@@ -28,9 +32,12 @@ export const VIEW_W = 896;
 export const VIEW_H = 504;
 const ANALYZE_EVERY_MS = 200;
 const PX_TO_M = 0.42; // условный масштаб: метры на пиксель кадра
+const MAX_HISTORY = 900; // ~3 минуты при 5 Гц
+const MAX_JOURNAL = 160;
 
 let eventSeq = 1;
 let detSeq = 1;
+let journalSeq = 1;
 let diffBuf: Uint8Array | null = null;
 
 function makeNoiseCanvas(w: number, h: number, seed: number): HTMLCanvasElement {
@@ -79,6 +86,21 @@ export interface Engine {
   resetCustom: () => void;
   snapshot: () => void;
   exportReport: () => void;
+  // журнал классификаций с перемоткой
+  following: boolean;
+  scrubIndex: number;
+  historyLen: number;
+  journal: JournalEntry[];
+  display: Snapshot | null;
+  seek: (logicalIdx: number) => void;
+  followLive: () => void;
+  // видео
+  video: VideoState;
+  uploadVideo: (file: File) => void;
+  toggleVideoPlay: () => void;
+  seekVideo: (t: number) => void;
+  stopVideo: () => void;
+  waterSourceCount: number;
   bindLive: (el: HTMLCanvasElement | null) => void;
   bindRef: (el: HTMLCanvasElement | null) => void;
   bindHeat: (el: HTMLCanvasElement | null) => void;
@@ -104,6 +126,21 @@ export function useEngine(): Engine {
   const [stats, setStats] = useState<EngineStats>({ lastMs: 0, segments: 0, fps: 0, peakTemp: 21, tick: 0 });
   const [customRef, setCustomRef] = useState(false);
   const [customCur, setCustomCur] = useState(false);
+  // журнал + перемотка
+  const [historyLen, setHistoryLen] = useState(0);
+  const [following, setFollowingState] = useState(true);
+  const [scrubIndex, setScrubIndex] = useState(-1);
+  const [journal, setJournal] = useState<JournalEntry[]>([]);
+  const [display, setDisplay] = useState<Snapshot | null>(null);
+  // видео
+  const [video, setVideo] = useState<VideoState>({
+    active: false,
+    playing: false,
+    name: '',
+    duration: 0,
+    currentTime: 0,
+  });
+  const [waterSourceCount, setWaterSourceCount] = useState(0);
 
   const liveRef = useRef<HTMLCanvasElement | null>(null);
   const refRef = useRef<HTMLCanvasElement | null>(null);
@@ -118,8 +155,24 @@ export function useEngine(): Engine {
   const activeClasses = useRef<Set<string>>(new Set());
   const thermalLogged = useRef(false);
   const prevDets = useRef<Detection[]>([]);
-  const detsRef = useRef<Detection[]>([]);
   const eventsRef = useRef<LogEvent[]>([]);
+
+  // журнал / перемотка (внутри цикла)
+  const historyRef = useRef<Snapshot[]>([]);
+  const histBaseRef = useRef(0);
+  const journalRef = useRef<JournalEntry[]>([]);
+  const followingRef = useRef(true);
+  const sessionStart = useRef(performance.now());
+  const lastSigRef = useRef('');
+  const lastEntryTickRef = useRef(-100);
+  const displayRef = useRef<Detection[]>([]);
+  const statsRef = useRef<EngineStats>({ lastMs: 0, segments: 0, fps: 0, peakTemp: 21, tick: 0 });
+  // видео (внутри цикла)
+  const videoElRef = useRef<HTMLVideoElement | null>(null);
+  const videoUrlRef = useRef<string | null>(null);
+  const videoActiveRef = useRef(false);
+  // водоисточники
+  const waterSourcesRef = useRef<WaterSource[]>([]);
 
   const bindLive = useCallback((el: HTMLCanvasElement | null) => {
     liveRef.current = el;
@@ -134,8 +187,8 @@ export function useEngine(): Engine {
     overlayRef.current = el;
   }, []);
 
-  detsRef.current = detections;
   eventsRef.current = events;
+  displayRef.current = display ? display.dets : detections;
 
   const cfg = useRef({ cameraId, scenario, threshold, minArea, overlays, viewMode, ready });
   cfg.current = { cameraId, scenario, threshold, minArea, overlays, viewMode, ready };
@@ -150,6 +203,14 @@ export function useEngine(): Engine {
     setEvents((prev) => [ev, ...prev].slice(0, 80));
   }, []);
 
+  /* ---------- возврат к «живому» просмотру ---------- */
+  const resetPlayback = useCallback(() => {
+    followingRef.current = true;
+    setFollowingState(true);
+    setScrubIndex(-1);
+    setDisplay(null);
+  }, []);
+
   const recomputeRef = useCallback(() => {
     const ac = document.createElement('canvas');
     ac.width = AW;
@@ -162,6 +223,11 @@ export function useEngine(): Engine {
       refData.current = actx.getImageData(0, 0, AW, AH);
     } catch {
       refData.current = null;
+    }
+    if (refData.current) {
+      const srcs = detectWaterSources(refData.current);
+      waterSourcesRef.current = srcs;
+      setWaterSourceCount(srcs.length);
     }
   }, []);
 
@@ -196,11 +262,12 @@ export function useEngine(): Engine {
       thermalLogged.current = false;
       prevDets.current = [];
       setDetections([]);
+      resetPlayback();
       if (!uploadedRefImg.current) recomputeRef();
       const cam = CAMERAS.find((c) => c.id === id);
       pushEvent('info', `Переключение на ${cam ? cam.name : id}`);
     },
-    [pushEvent, recomputeRef],
+    [pushEvent, recomputeRef, resetPlayback],
   );
 
   const setScenario = useCallback(
@@ -213,6 +280,7 @@ export function useEngine(): Engine {
       thermalLogged.current = false;
       prevDets.current = [];
       setDetections([]);
+      resetPlayback();
       if (s === 'calm') {
         pushEvent('info', 'Возврат к штатному режиму наблюдения');
       } else {
@@ -225,7 +293,7 @@ export function useEngine(): Engine {
         pushEvent('info', `Тестовый сценарий ${titles[s]} активирован`);
       }
     },
-    [pushEvent],
+    [pushEvent, resetPlayback],
   );
 
   const toggleOverlay = useCallback((key: keyof OverlaySettings) => {
@@ -255,10 +323,11 @@ export function useEngine(): Engine {
         activeClasses.current.clear();
         thermalLogged.current = false;
         recomputeRef();
+        resetPlayback();
         pushEvent('info', `Эталонный кадр загружен: ${file.name}`);
       });
     },
-    [loadFile, pushEvent, recomputeRef],
+    [loadFile, pushEvent, recomputeRef, resetPlayback],
   );
 
   const uploadCurrent = useCallback(
@@ -268,13 +337,82 @@ export function useEngine(): Engine {
         setCustomCur(true);
         activeClasses.current.clear();
         thermalLogged.current = false;
+        resetPlayback();
         pushEvent('info', `Анализируемый кадр загружен: ${file.name}`);
       });
     },
-    [loadFile, pushEvent],
+    [loadFile, pushEvent, resetPlayback],
   );
 
+  /* ---------- видео: загрузка и управление ---------- */
+  const stopVideoInternal = useCallback(() => {
+    const v = videoElRef.current;
+    if (v) v.pause();
+    videoActiveRef.current = false;
+    if (videoUrlRef.current) {
+      URL.revokeObjectURL(videoUrlRef.current);
+      videoUrlRef.current = null;
+    }
+    videoElRef.current = null;
+    setVideo({ active: false, playing: false, name: '', duration: 0, currentTime: 0 });
+  }, []);
+
+  const uploadVideo = useCallback(
+    (file: File) => {
+      stopVideoInternal();
+      const url = URL.createObjectURL(file);
+      const v = document.createElement('video');
+      v.src = url;
+      v.loop = true;
+      v.muted = true;
+      v.playsInline = true;
+      v.onloadedmetadata = () => {
+        setVideo((s) => ({ ...s, duration: v.duration || 0 }));
+        v.play().catch(() => {});
+      };
+      v.onplay = () => setVideo((s) => ({ ...s, playing: true }));
+      v.onpause = () => setVideo((s) => ({ ...s, playing: false }));
+      videoElRef.current = v;
+      videoUrlRef.current = url;
+      videoActiveRef.current = true;
+      // видео становится текущим источником → сценарии и шум отключаются
+      setScenarioState('calm');
+      cfg.current.scenario = 'calm';
+      uploadedCurImg.current = null;
+      setCustomCur(false);
+      activeClasses.current.clear();
+      thermalLogged.current = false;
+      prevDets.current = [];
+      setDetections([]);
+      resetPlayback();
+      setVideo({ active: true, playing: true, name: file.name, duration: 0, currentTime: 0 });
+      pushEvent('info', `Видео загружено: ${file.name} · сравнение с эталоном в реальном времени`);
+    },
+    [pushEvent, resetPlayback, stopVideoInternal],
+  );
+
+  const toggleVideoPlay = useCallback(() => {
+    const v = videoElRef.current;
+    if (!v) return;
+    if (v.paused) v.play().catch(() => {});
+    else v.pause();
+  }, []);
+
+  const seekVideo = useCallback((t: number) => {
+    const v = videoElRef.current;
+    if (!v) return;
+    v.currentTime = t;
+    setVideo((s) => ({ ...s, currentTime: t }));
+  }, []);
+
+  const stopVideo = useCallback(() => {
+    stopVideoInternal();
+    resetPlayback();
+    pushEvent('info', 'Видео остановлено · возврат к камере');
+  }, [pushEvent, resetPlayback, stopVideoInternal]);
+
   const resetCustom = useCallback(() => {
+    stopVideoInternal();
     uploadedRefImg.current = null;
     uploadedCurImg.current = null;
     setCustomRef(false);
@@ -283,9 +421,37 @@ export function useEngine(): Engine {
     thermalLogged.current = false;
     prevDets.current = [];
     setDetections([]);
+    resetPlayback();
     recomputeRef();
     pushEvent('info', 'Возврат к демонстрационным сценам');
-  }, [pushEvent, recomputeRef]);
+  }, [pushEvent, recomputeRef, resetPlayback, stopVideoInternal]);
+
+  /* ---------- перемотка журнала ---------- */
+  const seek = useCallback((logicalIdx: number) => {
+    const arr = historyRef.current;
+    let ai = logicalIdx - histBaseRef.current;
+    ai = Math.max(0, Math.min(arr.length - 1, ai));
+    const snap = arr[ai];
+    if (!snap) return;
+    followingRef.current = false;
+    setFollowingState(false);
+    setScrubIndex(snap.idx);
+    setDisplay(snap);
+  }, []);
+
+  const followLive = useCallback(() => {
+    followingRef.current = true;
+    setFollowingState(true);
+    const arr = historyRef.current;
+    const snap = arr[arr.length - 1];
+    if (snap) {
+      setScrubIndex(snap.idx);
+      setDisplay(snap);
+    } else {
+      setScrubIndex(-1);
+      setDisplay(null);
+    }
+  }, []);
 
   /* ---------- основной цикл ---------- */
   useEffect(() => {
@@ -300,6 +466,7 @@ export function useEngine(): Engine {
     let frames = 0;
     let fpsT = performance.now();
     let noiseFlip = 0;
+    let lastVT = 0;
 
     const analyze = () => {
       const cv = liveRef.current;
@@ -441,6 +608,14 @@ export function useEngine(): Engine {
       const thermalMax = dets.reduce((m, d) => (d.thermal && d.thermal.tempC > m ? d.thermal.tempC : m), 0);
       const peakTemp = thermalMax > 0 ? thermalMax : Math.round(17 + maxDiff * 0.22);
 
+      const snapStatus: SystemStatus = (() => {
+        const strong = dets.filter((d) => d.confidence >= 0.5);
+        if (strong.some((d) => d.severity === 'critical')) return 'critical';
+        if (strong.some((d) => d.severity === 'alert')) return 'alert';
+        if (strong.some((d) => d.severity === 'warn')) return 'warn';
+        return 'norm';
+      })();
+
       setDetections(dets);
       setStats((s) => ({
         lastMs: Math.round((performance.now() - t0) * 10) / 10,
@@ -449,6 +624,47 @@ export function useEngine(): Engine {
         peakTemp,
         tick: s.tick + 1,
       }));
+
+      /* --- журнал классификаций + перемотка --- */
+      const logicalIdx = histBaseRef.current + historyRef.current.length;
+      const snap: Snapshot = {
+        idx: logicalIdx,
+        elapsed: (performance.now() - sessionStart.current) / 1000,
+        clock: new Date().toTimeString().slice(0, 8),
+        dets,
+        peakTemp,
+        status: snapStatus,
+      };
+      historyRef.current.push(snap);
+      if (historyRef.current.length > MAX_HISTORY) {
+        historyRef.current.shift();
+        histBaseRef.current++;
+      }
+      setHistoryLen(histBaseRef.current + historyRef.current.length);
+      if (followingRef.current) setDisplay(snap);
+
+      // строка журнала — когда изменился набор классов или прошло ≥ 2 с
+      if (dets.length > 0) {
+        const tick = statsRef.current.tick;
+        const sig = dets.map((d) => d.klass).sort().join(',') || 'none';
+        if (sig !== lastSigRef.current || tick - lastEntryTickRef.current >= 10) {
+          lastSigRef.current = sig;
+          lastEntryTickRef.current = tick;
+          const entry: JournalEntry = {
+            id: journalSeq++,
+            histIdx: logicalIdx,
+            elapsed: snap.elapsed,
+            clock: snap.clock,
+            dets,
+            peakTemp,
+            status: snapStatus,
+            topLabel: dets[0].label,
+            count: dets.length,
+          };
+          journalRef.current = [entry, ...journalRef.current].slice(0, MAX_JOURNAL);
+          setJournal(journalRef.current);
+        }
+      }
     };
 
     const drawFrame = (now: number) => {
@@ -456,22 +672,29 @@ export function useEngine(): Engine {
       if (!cv) return;
       const ctx = cv.getContext('2d')!;
       const c = cfg.current;
-      const cur = uploadedCurImg.current ?? camSources.current[c.cameraId];
-      if (!cur) {
-        ctx.fillStyle = '#0a0e14';
-        ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-        return;
-      }
-      drawCover(ctx, cur, VIEW_W, VIEW_H);
-      const isDemoCur = !uploadedCurImg.current;
-      if (isDemoCur && c.scenario !== 'calm') {
-        drawScenario(ctx, c.scenario, (now - scenarioStart.current) / 1000, VIEW_W, VIEW_H);
-      }
-      if (isDemoCur) {
-        noiseFlip ^= 1;
-        ctx.globalAlpha = 0.045;
-        ctx.drawImage(noise[noiseFlip], 0, 0, VIEW_W, VIEW_H);
-        ctx.globalAlpha = 1;
+
+      const v = videoElRef.current;
+      const useVideo = videoActiveRef.current && v && v.readyState >= 2 && v.videoWidth > 0;
+      if (useVideo) {
+        drawCover(ctx, v!, VIEW_W, VIEW_H);
+      } else {
+        const cur = uploadedCurImg.current ?? camSources.current[c.cameraId];
+        if (!cur) {
+          ctx.fillStyle = '#0a0e14';
+          ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+        } else {
+          drawCover(ctx, cur, VIEW_W, VIEW_H);
+          const isDemoCur = !uploadedCurImg.current;
+          if (isDemoCur && c.scenario !== 'calm') {
+            drawScenario(ctx, c.scenario, (now - scenarioStart.current) / 1000, VIEW_W, VIEW_H, waterSourcesRef.current);
+          }
+          if (isDemoCur) {
+            noiseFlip ^= 1;
+            ctx.globalAlpha = 0.045;
+            ctx.drawImage(noise[noiseFlip], 0, 0, VIEW_W, VIEW_H);
+            ctx.globalAlpha = 1;
+          }
+        }
       }
 
       const rc = refRef.current;
@@ -489,6 +712,7 @@ export function useEngine(): Engine {
       ctx.clearRect(0, 0, VIEW_W, VIEW_H);
       const c = cfg.current;
       if (c.viewMode === 'reference' || c.viewMode === 'compare') return;
+      const dets = displayRef.current;
 
       if (c.overlays.grid) {
         ctx.strokeStyle = 'rgba(96,140,196,0.12)';
@@ -507,13 +731,12 @@ export function useEngine(): Engine {
 
       if (c.overlays.boxes) {
         ctx.font = '600 11px "JetBrains Mono", monospace';
-        for (const d of detsRef.current) {
+        for (const d of dets) {
           const color = KLASS_META[d.klass].color;
           const { x, y, w, h } = d.bbox;
           ctx.strokeStyle = color;
           ctx.lineWidth = 1.4;
           ctx.strokeRect(x, y, w, h);
-          // угловые метки
           ctx.lineWidth = 2.6;
           const L = Math.min(11, w / 3, h / 3);
           ctx.beginPath();
@@ -522,7 +745,6 @@ export function useEngine(): Engine {
           ctx.moveTo(x + w, y + h - L); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w - L, y + h);
           ctx.moveTo(x + L, y + h); ctx.lineTo(x, y + h); ctx.lineTo(x, y + h - L);
           ctx.stroke();
-          // подпись
           const text = `${d.label.toUpperCase()} ${Math.round(d.confidence * 100)}%`;
           const tw = ctx.measureText(text).width;
           const ly = y - 22 < 2 ? y + h + 4 : y - 22;
@@ -535,7 +757,7 @@ export function useEngine(): Engine {
       }
 
       if (c.overlays.thermal) {
-        for (const d of detsRef.current) {
+        for (const d of dets) {
           if (!d.thermal) continue;
           const { x, y } = d.thermal;
           const pulse = 13 + 5 * Math.sin(now / 210);
@@ -574,6 +796,12 @@ export function useEngine(): Engine {
         lastAn = now;
         analyze();
       }
+      // обновление позиции видео (для ползунка)
+      const v = videoElRef.current;
+      if (videoActiveRef.current && v && now - lastVT > 250) {
+        lastVT = now;
+        setVideo((s) => (s.active ? { ...s, currentTime: v.currentTime } : s));
+      }
       frames++;
       if (now - fpsT >= 1000) {
         const f = frames;
@@ -583,9 +811,14 @@ export function useEngine(): Engine {
       }
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // зеркало stats для использования внутри цикла (tick журнала)
+  statsRef.current = stats;
 
   /* ---------- снимок и отчёт ---------- */
   const snapshot = useCallback(() => {
@@ -616,7 +849,7 @@ export function useEngine(): Engine {
       camera: cam ? cam.name : cfg.current.cameraId,
       scenario: cfg.current.scenario,
       params: { threshold: cfg.current.threshold, minAreaPx: cfg.current.minArea },
-      detections: detsRef.current.map((d) => ({
+      detections: displayRef.current.map((d) => ({
         class: d.klass,
         label: d.label,
         confidence: Math.round(d.confidence * 100) / 100,
@@ -671,6 +904,19 @@ export function useEngine(): Engine {
     resetCustom,
     snapshot,
     exportReport,
+    following,
+    scrubIndex,
+    historyLen,
+    journal,
+    display,
+    seek,
+    followLive,
+    video,
+    uploadVideo,
+    toggleVideoPlay,
+    seekVideo,
+    stopVideo,
+    waterSourceCount,
     bindLive,
     bindRef,
     bindHeat,

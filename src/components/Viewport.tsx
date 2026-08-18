@@ -38,8 +38,8 @@ export default function Viewport({ engine }: { engine: Engine }) {
 
   const topDet = engine.detections[0];
   const showBanner = (engine.status === 'critical' || engine.status === 'alert') && topDet;
-  const tempColor =
-    engine.stats.peakTemp > 110 ? 'text-crit' : engine.stats.peakTemp > 55 ? 'text-warn' : 'text-teal';
+  const peakTemp = engine.display?.peakTemp ?? engine.stats.peakTemp;
+  const tempColor = peakTemp > 110 ? 'text-crit' : peakTemp > 55 ? 'text-warn' : 'text-teal';
 
   const corner = 'pointer-events-none absolute h-5 w-5 border-teal/50';
 
@@ -61,8 +61,18 @@ export default function Viewport({ engine }: { engine: Engine }) {
           </button>
         ))}
         <div className="ml-auto flex items-center gap-2 font-mono text-[10px] text-dim">
-          <span className="h-2 w-2 rounded-full bg-crit led-blink" />
-          REC · {cam?.short ?? '—'}
+          {engine.video.active ? (
+            <>
+              <span className="h-2 w-2 rounded-full bg-crit led-blink" />
+              <span className="font-bold tracking-widest text-crit">ВИДЕО</span>
+              <span className="text-fg">{engine.video.playing ? '▶' : '⏸'}</span>
+            </>
+          ) : (
+            <>
+              <span className="h-2 w-2 rounded-full bg-crit led-blink" />
+              REC · {cam?.short ?? '—'}
+            </>
+          )}
         </div>
       </div>
 
@@ -130,7 +140,7 @@ export default function Viewport({ engine }: { engine: Engine }) {
         </div>
         <div className="pointer-events-none absolute right-4 top-3 text-right font-mono text-[10.5px]">
           <span className="text-dim">T-МАКС </span>
-          <span className={`font-bold tabular-nums ${tempColor}`}>{engine.stats.peakTemp}°C</span>
+          <span className={`font-bold tabular-nums ${tempColor}`}>{peakTemp}°C</span>
         </div>
         <div className="pointer-events-none absolute bottom-3 left-4 font-mono text-[10.5px] text-mut">
           <span className="text-crit">●</span> REC · <HudClock /> · 25 FPS

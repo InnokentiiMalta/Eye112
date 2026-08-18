@@ -9,9 +9,13 @@ import {
   IconDroplet,
   IconEye,
   IconFlame,
+  IconPause,
+  IconPlay,
   IconReset,
+  IconStop,
   IconTerrain,
   IconUpload,
+  IconVideo,
 } from './icons';
 
 const SCENARIO_ICON: Record<ScenarioId, (p: { className?: string }) => React.ReactElement> = {
@@ -34,11 +38,19 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   return <div className="hud-label mb-2 mt-5 first:mt-0">{children}</div>;
 }
 
+function fmtT(s: number): string {
+  if (!isFinite(s) || s < 0) s = 0;
+  const m = Math.floor(s / 60);
+  const ss = Math.floor(s % 60);
+  return `${m}:${String(ss).padStart(2, '0')}`;
+}
+
 export default function Sidebar({ engine }: { engine: Engine }) {
   const refInput = useRef<HTMLInputElement>(null);
   const curInput = useRef<HTMLInputElement>(null);
+  const vidInput = useRef<HTMLInputElement>(null);
   const activeStep = engine.ready ? engine.stats.tick % PIPELINE_STEPS.length : -1;
-  const hasCustom = engine.customRef || engine.customCur;
+  const hasCustom = engine.customRef || engine.customCur || engine.video.active;
 
   return (
     <aside className="panel flex flex-col p-3.5">
@@ -104,11 +116,11 @@ export default function Sidebar({ engine }: { engine: Engine }) {
         })}
       </div>
 
-      <SectionTitle>Собственные кадры</SectionTitle>
-      <div className="grid grid-cols-2 gap-1.5">
+      <SectionTitle>Собственные кадры и видео</SectionTitle>
+      <div className="grid grid-cols-3 gap-1.5">
         <button
           onClick={() => refInput.current?.click()}
-          className={`flex items-center justify-center gap-1.5 rounded-[5px] border px-2 py-2 text-[11.5px] font-semibold transition-colors ${
+          className={`flex flex-col items-center justify-center gap-1 rounded-[5px] border px-1 py-2 text-[10.5px] font-semibold transition-colors ${
             engine.customRef
               ? 'border-teal/50 bg-teal/10 text-teal'
               : 'border-line bg-panel2 text-mut hover:border-line2 hover:text-fg'
@@ -118,13 +130,23 @@ export default function Sidebar({ engine }: { engine: Engine }) {
         </button>
         <button
           onClick={() => curInput.current?.click()}
-          className={`flex items-center justify-center gap-1.5 rounded-[5px] border px-2 py-2 text-[11.5px] font-semibold transition-colors ${
+          className={`flex flex-col items-center justify-center gap-1 rounded-[5px] border px-1 py-2 text-[10.5px] font-semibold transition-colors ${
             engine.customCur
               ? 'border-teal/50 bg-teal/10 text-teal'
               : 'border-line bg-panel2 text-mut hover:border-line2 hover:text-fg'
           }`}
         >
           <IconUpload className="h-3.5 w-3.5" /> Кадр
+        </button>
+        <button
+          onClick={() => vidInput.current?.click()}
+          className={`flex flex-col items-center justify-center gap-1 rounded-[5px] border px-1 py-2 text-[10.5px] font-semibold transition-colors ${
+            engine.video.active
+              ? 'border-crit/50 bg-crit/10 text-crit'
+              : 'border-line bg-panel2 text-mut hover:border-line2 hover:text-fg'
+          }`}
+        >
+          <IconVideo className="h-3.5 w-3.5" /> Видео
         </button>
       </div>
       <input
@@ -149,6 +171,58 @@ export default function Sidebar({ engine }: { engine: Engine }) {
           e.target.value = '';
         }}
       />
+      <input
+        ref={vidInput}
+        type="file"
+        accept="video/*"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) engine.uploadVideo(f);
+          e.target.value = '';
+        }}
+      />
+
+      {/* пульт видео */}
+      {engine.video.active && (
+        <div className="slide-in-up mt-1.5 rounded-[5px] border border-crit/40 bg-crit/8 p-2.5">
+          <div className="mb-1.5 flex items-center gap-2">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-crit led-blink" />
+            <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-fg">
+              {engine.video.name}
+            </span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={Math.max(0.1, engine.video.duration)}
+            step={0.05}
+            value={Math.min(engine.video.currentTime, engine.video.duration)}
+            onChange={(e) => engine.seekVideo(Number(e.target.value))}
+            aria-label="Перемотка видео"
+          />
+          <div className="mt-0.5 flex items-center justify-between font-mono text-[9px] text-dim tabular-nums">
+            <span>{fmtT(engine.video.currentTime)}</span>
+            <span>{fmtT(engine.video.duration)}</span>
+          </div>
+          <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+            <button
+              onClick={engine.toggleVideoPlay}
+              className="flex items-center justify-center gap-1.5 rounded-[4px] border border-line bg-panel2 px-2 py-1.5 text-[11px] font-semibold text-fg transition-colors hover:border-teal/50 hover:text-teal"
+            >
+              {engine.video.playing ? <IconPause className="h-3.5 w-3.5" /> : <IconPlay className="h-3.5 w-3.5" />}
+              {engine.video.playing ? 'Пауза' : 'Пуск'}
+            </button>
+            <button
+              onClick={engine.stopVideo}
+              className="flex items-center justify-center gap-1.5 rounded-[4px] border border-line bg-panel2 px-2 py-1.5 text-[11px] font-semibold text-mut transition-colors hover:border-crit/50 hover:text-crit"
+            >
+              <IconStop className="h-3.5 w-3.5" /> Стоп
+            </button>
+          </div>
+        </div>
+      )}
+
       {hasCustom && (
         <button
           onClick={engine.resetCustom}
@@ -158,8 +232,8 @@ export default function Sidebar({ engine }: { engine: Engine }) {
         </button>
       )}
       <p className="mt-2 text-[10.5px] leading-relaxed text-dim">
-        Загрузите эталон («пока ничего не возникло») и кадр с событием — конвейер выполнит
-        попиксельное сравнение и классификацию.
+        Загрузите эталон («пока ничего не возникло») и кадр или видео с того же ракурса — конвейер
+        выполнит попиксельное сравнение и классификацию в реальном времени.
       </p>
 
       <SectionTitle>Конвейер анализа</SectionTitle>
@@ -182,6 +256,10 @@ export default function Sidebar({ engine }: { engine: Engine }) {
         <div className="mt-2 grid grid-cols-2 gap-1.5 border-t border-line pt-2 font-mono text-[10px] text-dim">
           <span>цикл: {engine.stats.lastMs || '—'} мс</span>
           <span className="text-right">сегментов: {engine.stats.segments}</span>
+        </div>
+        <div className="mt-1.5 flex items-center gap-1.5 border-t border-line pt-2 font-mono text-[10px] text-dim">
+          <IconDroplet className="h-3 w-3 text-infoc/70" />
+          водоисточников на эталоне: <span className="font-bold text-infoc">{engine.waterSourceCount}</span>
         </div>
       </div>
     </aside>

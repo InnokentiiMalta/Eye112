@@ -61,6 +61,8 @@ export function loadCameraSource(src: string, camIndex: number): Promise<CanvasI
 function sourceDims(src: CanvasImageSource): { w: number; h: number } {
   if (src instanceof HTMLImageElement) return { w: src.naturalWidth || 1280, h: src.naturalHeight || 720 };
   if (src instanceof HTMLCanvasElement) return { w: src.width, h: src.height };
+  if (typeof HTMLVideoElement !== 'undefined' && src instanceof HTMLVideoElement)
+    return { w: src.videoWidth || 1280, h: src.videoHeight || 720 };
   return { w: 1280, h: 720 };
 }
 
@@ -71,6 +73,50 @@ export function drawCover(ctx: CanvasRenderingContext2D, src: CanvasImageSource,
   const dw = sw * scale;
   const dh = sh * scale;
   ctx.drawImage(src, (w - dw) / 2, (h - dh) / 2, dw, dh);
+}
+
+export interface WaterSource {
+  x: number; // нормированные координаты 0..1
+  y: number;
+  w: number; // доля водных пикселей
+}
+
+/**
+ * Выявление зон водоисточников на эталонном снимке:
+ * поиск пикселей с доминирующим синим каналом и кластеризация по сетке.
+ */
+export function detectWaterSources(img: ImageData): WaterSource[] {
+  const W = img.width;
+  const H = img.height;
+  const d = img.data;
+  const GW = 20;
+  const GH = 12;
+  const grid = new Float32Array(GW * GH);
+  let total = 0;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const j = (y * W + x) * 4;
+      const r = d[j];
+      const g = d[j + 1];
+      const b = d[j + 2];
+      if (b - r > 18 && b - g > 6 && b > 60) {
+        const gx = Math.min(GW - 1, Math.floor((x / W) * GW));
+        const gy = Math.min(GH - 1, Math.floor((y / H) * GH));
+        grid[gy * GW + gx]++;
+        total++;
+      }
+    }
+  }
+  if (total < 30) return [];
+  const cells: Array<{ i: number; v: number }> = [];
+  for (let i = 0; i < grid.length; i++) if (grid[i] >= 3) cells.push({ i, v: grid[i] });
+  if (!cells.length) return [];
+  cells.sort((a, b) => b.v - a.v);
+  return cells.slice(0, 4).map((c) => ({
+    x: ((c.i % GW) + 0.5) / GW,
+    y: (Math.floor(c.i / GW) + 0.5) / GH,
+    w: c.v / total,
+  }));
 }
 
 /** Процедурная сцена (фолбэк): склад у лесополосы / резервуарный парк. */
