@@ -48,7 +48,15 @@ export default function DetectionPanel({ engine }: { engine: Engine }) {
   const status = engine.display?.status ?? engine.status;
   const peakTemp = engine.display?.peakTemp ?? engine.stats.peakTemp;
   const st = STATUS_WORD[status];
-  const thermals = dets.filter((d) => d.thermal);
+  // разворачиваем все термоточки всех аномалий в плоский список
+  const thermals = dets.flatMap((d) =>
+    (d.thermals ?? (d.thermal ? [d.thermal] : [])).map((t, i) => ({
+      ...t,
+      key: `${d.id}-${i}`,
+      label: d.label,
+      hottest: i === 0,
+    })),
+  );
   const strong = dets.filter((d) => d.confidence >= 0.5);
 
   const scrub = engine.following ? engine.historyLen - 1 : engine.scrubIndex;
@@ -130,18 +138,29 @@ export default function DetectionPanel({ engine }: { engine: Engine }) {
         {thermals.length === 0 ? (
           <div className="py-1.5 text-[11.5px] text-dim">Локальных тепловых максимумов не зафиксировано.</div>
         ) : (
-          <div className="space-y-1.5">
+          <div className="max-h-[150px] space-y-1.5 overflow-y-auto pr-1">
             {thermals.map((d) => (
               <div
-                key={`t-${d.id}`}
-                className="slide-in-up flex items-center gap-2.5 rounded-[5px] border border-thermo/30 bg-thermo/8 px-2.5 py-2"
+                key={d.key}
+                className={`slide-in-up flex items-center gap-2.5 rounded-[5px] border px-2.5 py-1.5 ${
+                  d.hottest ? 'border-thermo/40 bg-thermo/10' : 'border-thermo/20 bg-thermo/5'
+                }`}
               >
-                <span className="h-2 w-2 shrink-0 rounded-full bg-thermo led-blink" />
-                <span className="font-mono text-[15px] font-bold text-thermo tabular-nums">
-                  ≈{d.thermal!.tempC}°C
+                <span
+                  className={`shrink-0 rounded-full bg-thermo ${d.hottest ? 'h-2 w-2 led-blink' : 'h-1.5 w-1.5 opacity-70'}`}
+                />
+                <span
+                  className={`font-mono font-bold text-thermo tabular-nums ${d.hottest ? 'text-[15px]' : 'text-[12.5px]'}`}
+                >
+                  ≈{d.tempC}°C
                 </span>
+                {d.hottest && (
+                  <span className="rounded-[3px] bg-thermo/15 px-1 py-px font-mono text-[8px] font-bold tracking-wider text-thermo">
+                    МАКС
+                  </span>
+                )}
                 <span className="ml-auto text-right font-mono text-[9.5px] text-dim">
-                  ({Math.round(d.thermal!.x)}; {Math.round(d.thermal!.y)}) · {d.label}
+                  ({Math.round(d.x)}; {Math.round(d.y)}) · {d.label}
                 </span>
               </div>
             ))}

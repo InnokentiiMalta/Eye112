@@ -6,6 +6,12 @@ import type { Klass } from './types';
 export const AW = 320; // разрешение анализа
 export const AH = 180;
 
+export interface ThermalSpot {
+  x: number;
+  y: number;
+  lum: number;
+}
+
 export interface Blob {
   area: number;
   minX: number;
@@ -21,6 +27,63 @@ export interface Blob {
   peak: number;
   peakX: number;
   peakY: number;
+  /** все локальные тепловые максимумы внутри области (отсортированы по убыванию яркости) */
+  thermals: ThermalSpot[];
+}
+
+/**
+ * Поиск локальных максимумов яркости внутри связной области.
+ * Пиксель считается локальным максимумом, если его яркость не меньше яркости
+ * всех соседних пикселей маски в окне 3×3. Затем применяется подавление
+ * немаксимумов: точки ближе MIN_DIST друг к другу сливаются, остаётся самая яркая.
+ */
+function findLocalMaxima(
+  mask: Uint8Array,
+  frame: Uint8ClampedArray,
+  members: number[],
+  maxCount: number,
+): ThermalSpot[] {
+  const lumAt = (i: number) => {
+    const j = i * 4;
+    return 0.299 * frame[j] + 0.587 * frame[j + 1] + 0.114 * frame[j + 2];
+  };
+
+  const candidates: ThermalSpot[] = [];
+  for (const i of members) {
+    const x = i % AW;
+    const y = (i / AW) | 0;
+    const lum = lumAt(i);
+    let isMax = true;
+    for (let dy = -1; dy <= 1 && isMax; dy++) {
+      const ny = y + dy;
+      if (ny < 0 || ny >= AH) continue;
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = x + dx;
+        if (nx < 0 || nx >= AW) continue;
+        const ni = ny * AW + nx;
+        // сравниваем только с пикселями той же маски
+        if (mask[ni] && lumAt(ni) > lum) {
+          isMax = false;
+          break;
+        }
+      }
+    }
+    if (isMax) candidates.push({ x, y, lum });
+  }
+
+  // подавление немаксимумов: сливаем близко расположенные точки
+  candidates.sort((a, b) => b.lum - a.lum);
+  const MIN_DIST = 6; // px в координатах анализа
+  const kept: ThermalSpot[] = [];
+  for (const c of candidates) {
+    if (kept.length >= maxCount) break;
+    const tooClose = kept.some(
+      (k) => Math.hypot(k.x - c.x, k.y - c.y) < MIN_DIST,
+    );
+    if (!tooClose) kept.push(c);
+  }
+  return kept;
 }
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -49,12 +112,14 @@ export function extractBlobs(
     let minX = AW, minY = AH, maxX = -1, maxY = -1;
     let sx = 0, sy = 0, sr = 0, sg = 0, sb = 0, sd = 0;
     let peak = -1, peakX = 0, peakY = 0;
+    const members: number[] = [];
 
     while (stack.length) {
       const i = stack.pop()!;
       const x = i % AW;
       const y = (i / AW) | 0;
       area++;
+      members.push(i);
       sx += x; sy += y;
       if (x < minX) minX = x;
       if (x > maxX) maxX = x;
@@ -85,6 +150,9 @@ export function extractBlobs(
       }
     }
 
+    // локальные тепловые максимумы ищем только у областей заметного размера
+    const thermals = area >= 12 ? findLocalMaxima(mask, frame, members, 5) : [];
+
     out.push({
       area,
       minX, minY, maxX, maxY,
@@ -97,6 +165,7 @@ export function extractBlobs(
       peak,
       peakX,
       peakY,
+      thermals,
     });
   }
   return out;

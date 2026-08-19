@@ -156,41 +156,20 @@ function drawFlood(
       ? sources
       : [{ x: 0.5, y: 0.82, w: 1 }];
 
-  /* общий подъём уровня (растёт после того, как пятна немного расширились) */
-  const levelK = clamp01((t - 3) / 15);
-  if (levelK > 0) {
-    const topY = H * (0.97 - 0.34 * levelK);
-    ctx.beginPath();
-    ctx.moveTo(0, H);
-    ctx.lineTo(0, topY);
-    for (let x = 0; x <= W; x += 14) {
-      const y = topY + Math.sin(x * 0.021 + t * 1.35) * 3 + Math.sin(x * 0.047 - t * 0.8) * 2;
-      ctx.lineTo(x, y);
-    }
-    ctx.lineTo(W, H);
-    ctx.closePath();
-    const wg = ctx.createLinearGradient(0, topY, 0, H);
-    wg.addColorStop(0, 'rgba(46,92,160,0.52)');
-    wg.addColorStop(0.45, 'rgba(34,76,142,0.6)');
-    wg.addColorStop(1, 'rgba(20,52,102,0.7)');
-    ctx.fillStyle = wg;
-    ctx.fill();
-  }
-
-  /* растущие пятна подтопления у каждого водоисточника (стекают вниз) */
+  /* растущие пятна подтопления у каждого водоисточника (выход из берегов) */
   for (const s of srcs) {
     const sx = s.x * W;
     const sy = s.y * H;
-    const lobes = 5;
+    const lobes = 6;
     for (let i = 0; i < lobes; i++) {
-      const phase = clamp01((t - i * 1.4) / 6.5);
+      const phase = clamp01((t - i * 1.1) / 8);
       if (phase <= 0.01) continue;
       // пятно расширяется вниз и в стороны от источника
       const spread = (i - (lobes - 1) / 2) / ((lobes - 1) / 2); // -1..1
-      const cx = sx + spread * phase * W * 0.16;
-      const cy = sy + phase * H * 0.2;
-      const r = (16 + 95 * phase) * (0.75 + 0.25 * Math.abs(spread === 0 ? 1 : 0.8));
-      const alpha = 0.5 * (0.35 + 0.65 * phase);
+      const cx = sx + spread * phase * W * 0.18;
+      const cy = sy + phase * H * 0.22;
+      const r = (20 + 120 * phase) * (0.75 + 0.25 * Math.abs(spread === 0 ? 1 : 0.8));
+      const alpha = 0.56 * (0.35 + 0.65 * phase);
       const g = ctx.createRadialGradient(cx, cy - r * 0.25, r * 0.1, cx, cy, r);
       g.addColorStop(0, `rgba(64,110,178,${alpha})`);
       g.addColorStop(0.55, `rgba(42,86,150,${alpha * 0.85})`);
@@ -212,33 +191,6 @@ function drawFlood(
     }
   }
 
-  /* блики на воде */
-  ctx.strokeStyle = 'rgba(215,232,248,0.13)';
-  ctx.lineWidth = 1.5;
-  const hlTop = H * (0.97 - 0.34 * levelK);
-  for (let i = 0; i < 8; i++) {
-    const y = hlTop + 14 + i * 14 + Math.sin(t * 0.8 + i) * 2.4;
-    if (y > H - 4) continue;
-    const shift = ((t * 26 + i * 110) % (W + 220)) - 110;
-    ctx.beginPath();
-    ctx.moveTo(shift, y);
-    ctx.lineTo(shift + 54 + (i % 3) * 44, y);
-    ctx.stroke();
-  }
-
-  /* кромка поднявшейся воды */
-  if (levelK > 0) {
-    const topY = H * (0.97 - 0.34 * levelK);
-    ctx.beginPath();
-    for (let x = 0; x <= W; x += 14) {
-      const y = topY + Math.sin(x * 0.021 + t * 1.35) * 3 + Math.sin(x * 0.047 - t * 0.8) * 2;
-      if (x === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.strokeStyle = 'rgba(200,222,240,0.28)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  }
 }
 
 /* ---------------- ОБРУШЕНИЕ: завал + оседающее пылевое облако ---------------- */

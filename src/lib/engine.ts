@@ -511,15 +511,21 @@ export function useEngine(): Engine {
         const meta = KLASS_META[cls.klass];
         let label = meta.label;
         let thermal: Detection['thermal'];
+        let thermalsArr: Detection['thermals'];
         if (cls.klass === 'fire') {
-          const tempC = estimateTempC(b.peak);
-          if (tempC > 110) {
-            thermal = {
-              tempC,
-              peak: b.peak,
-              x: (b.peakX + 0.5) * scale,
-              y: (b.peakY + 0.5) * scale,
-            };
+          // все локальные тепловые максимумы области
+          const spots = b.thermals
+            .map((s) => ({
+              tempC: estimateTempC(s.lum),
+              peak: s.lum,
+              x: (s.x + 0.5) * scale,
+              y: (s.y + 0.5) * scale,
+            }))
+            .filter((p) => p.tempC > 110)
+            .sort((a, b2) => b2.tempC - a.tempC);
+          if (spots.length) {
+            thermalsArr = spots;
+            thermal = spots[0]; // самая горячая — для сводных метрик
           }
           label = b.area < 120 ? 'Термоточка · очаг возгорания' : 'Возгорание';
         }
@@ -540,6 +546,7 @@ export function useEngine(): Engine {
           centroid: { x: b.cx * scale, y: b.cy * scale },
           meanDiff: Math.round(b.meanDiff),
           thermal,
+          thermals: thermalsArr,
         };
       });
 
@@ -758,31 +765,46 @@ export function useEngine(): Engine {
 
       if (c.overlays.thermal) {
         for (const d of dets) {
-          if (!d.thermal) continue;
-          const { x, y } = d.thermal;
-          const pulse = 13 + 5 * Math.sin(now / 210);
-          ctx.strokeStyle = 'rgba(255,209,102,0.5)';
-          ctx.lineWidth = 1.6;
-          ctx.beginPath();
-          ctx.arc(x, y, pulse, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.strokeStyle = '#ffd166';
-          ctx.lineWidth = 1.8;
-          ctx.beginPath();
-          ctx.arc(x, y, 7, 0, Math.PI * 2);
-          ctx.moveTo(x - 14, y); ctx.lineTo(x - 4, y);
-          ctx.moveTo(x + 4, y); ctx.lineTo(x + 14, y);
-          ctx.moveTo(x, y - 14); ctx.lineTo(x, y - 4);
-          ctx.moveTo(x, y + 4); ctx.lineTo(x, y + 14);
-          ctx.stroke();
-          const label = `≈${d.thermal.tempC}°C`;
-          ctx.font = '700 12px "JetBrains Mono", monospace';
-          const tw = ctx.measureText(label).width;
-          const tx = x + 18 + tw > VIEW_W ? x - 26 - tw : x + 18;
-          ctx.fillStyle = 'rgba(7,10,15,0.84)';
-          ctx.fillRect(tx - 5, y - 10, tw + 10, 17);
-          ctx.fillStyle = '#ffd166';
-          ctx.fillText(label, tx, y + 3);
+          const spots = d.thermals?.length ? d.thermals : d.thermal ? [d.thermal] : [];
+          spots.forEach((tp, idx) => {
+            const { x, y } = tp;
+            const isHottest = idx === 0;
+            // пульсирующее кольцо только у самой горячей точки
+            if (isHottest) {
+              const pulse = 13 + 5 * Math.sin(now / 210);
+              ctx.strokeStyle = 'rgba(255,209,102,0.5)';
+              ctx.lineWidth = 1.6;
+              ctx.beginPath();
+              ctx.arc(x, y, pulse, 0, Math.PI * 2);
+              ctx.stroke();
+            }
+            // маркер-перекрестие (у вторичных точек чуть меньше)
+            const R = isHottest ? 7 : 5;
+            const arm = isHottest ? 14 : 10;
+            ctx.strokeStyle = isHottest ? '#ffd166' : 'rgba(255,209,102,0.85)';
+            ctx.lineWidth = isHottest ? 1.8 : 1.4;
+            ctx.beginPath();
+            ctx.arc(x, y, R, 0, Math.PI * 2);
+            ctx.moveTo(x - arm, y); ctx.lineTo(x - R + 3, y);
+            ctx.moveTo(x + R - 3, y); ctx.lineTo(x + arm, y);
+            ctx.moveTo(x, y - arm); ctx.lineTo(x, y - R + 3);
+            ctx.moveTo(x, y + R - 3); ctx.lineTo(x, y + arm);
+            ctx.stroke();
+            // подпись температуры
+            const label = `≈${tp.tempC}°C`;
+            ctx.font = `${isHottest ? 700 : 600} ${isHottest ? 12 : 10.5}px "JetBrains Mono", monospace`;
+            const tw = ctx.measureText(label).width;
+            // чередуем сторону подписи, чтобы они не накладывались
+            const tx =
+              idx % 2 === 0
+                ? (x + 18 + tw > VIEW_W ? x - 26 - tw : x + 18)
+                : (x - 26 - tw < 0 ? x + 18 : x - 26 - tw);
+            const ty = y + (idx % 3 === 2 ? 18 : 0);
+            ctx.fillStyle = 'rgba(7,10,15,0.84)';
+            ctx.fillRect(tx - 5, ty - 10, tw + 10, 16);
+            ctx.fillStyle = isHottest ? '#ffd166' : 'rgba(255,209,102,0.92)';
+            ctx.fillText(label, tx, ty + 2);
+          });
         }
       }
     };

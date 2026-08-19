@@ -26,7 +26,10 @@ export interface Detection {
   areaM2: number;
   centroid: { x: number; y: number };
   meanDiff: number;
+  /** самая горячая термоточка (для сводных метрик и журнала) */
   thermal?: ThermalPoint;
+  /** все термоточки внутри аномалии */
+  thermals?: ThermalPoint[];
 }
 
 export interface LogEvent {
