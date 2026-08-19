@@ -17,7 +17,9 @@ export default function App() {
       <TopBar
         status={engine.status}
         cameraName={cam?.name ?? '—'}
-        scenarioTitle={scn?.title ?? '—'}
+        scenarioTitle={
+          engine.speed !== 1 ? `${scn?.title ?? '—'} · ×${engine.speed}` : scn?.title ?? '—'
+        }
         ready={engine.ready}
       />
 

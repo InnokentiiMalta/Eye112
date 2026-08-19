@@ -25,10 +25,16 @@ function mulberry32(seed: number) {
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
+/**
+ * tSim  — симуляционное время (сек), течёт с учётом множителя скорости;
+ * tReal — реальное время (сек) для «живых» эффектов (мерцание, дрейф),
+ *         которые не должны замедляться вместе со сценарием.
+ */
 export function drawScenario(
   ctx: CanvasRenderingContext2D,
   id: ScenarioId,
-  t: number,
+  tSim: number,
+  tReal: number,
   W: number,
   H: number,
   waterSources?: WaterSource[],
@@ -36,16 +42,16 @@ export function drawScenario(
   ctx.save();
   switch (id) {
     case 'fire':
-      drawFire(ctx, t, W, H);
+      drawFire(ctx, tSim, tReal, W, H);
       break;
     case 'flood':
-      drawFlood(ctx, t, W, H, waterSources);
+      drawFlood(ctx, tSim, tReal, W, H, waterSources);
       break;
     case 'collapse':
-      drawCollapse(ctx, t, W, H);
+      drawCollapse(ctx, tSim, tReal, W, H);
       break;
     case 'terrain':
-      drawTerrain(ctx, t, W, H);
+      drawTerrain(ctx, tSim, W, H);
       break;
     case 'calm':
       break;
@@ -54,17 +60,23 @@ export function drawScenario(
 }
 
 /* ---------------- ПОЖАР: растущая термоточка + пламя + шлейф дыма ---------------- */
-function drawFire(ctx: CanvasRenderingContext2D, t: number, W: number, H: number) {
-  const k = clamp01(t / 9); // рост очага за ~9 секунд
+function drawFire(
+  ctx: CanvasRenderingContext2D,
+  tSim: number,
+  tReal: number,
+  W: number,
+  H: number,
+) {
+  const k = clamp01(tSim / 80); // реалистичный рост очага: ~80 с симуляции
   const fx = W * 0.665;
   const fy = H * 0.585;
-  const flick = Math.sin(t * 11) + Math.sin(t * 23 + 1.7) * 0.5;
+  const flick = Math.sin(tReal * 11) + Math.sin(tReal * 23 + 1.7) * 0.5;
 
-  // шлейф дыма (уходит вверх-влево)
+  // шлейф дыма (уходит вверх-влево, дрейф в реальном времени)
   for (let j = 0; j < 16; j++) {
-    const phase = (t * 0.3 + j * 0.117) % 1.8;
+    const phase = (tReal * 0.3 + j * 0.117) % 1.8;
     const p = phase / 1.8;
-    const x = fx - p * W * 0.17 + Math.sin(t * 0.9 + j) * 10 * p;
+    const x = fx - p * W * 0.17 + Math.sin(tReal * 0.9 + j) * 10 * p;
     const y = fy - p * H * 0.4 - 8;
     const r = (10 + 74 * p) * (0.55 + 0.45 * k);
     const alpha = (1 - p) * 0.34 * (0.3 + 0.7 * k);
@@ -95,7 +107,7 @@ function drawFire(ctx: CanvasRenderingContext2D, t: number, W: number, H: number
   const rnd = mulberry32(777);
   for (let i = 0; i < tongues; i++) {
     const bx = fx + (rnd() - 0.5) * 34 * (0.5 + k);
-    const hgt = (16 + 66 * k) * (0.65 + rnd() * 0.6) * (1 + 0.12 * Math.sin(t * 17 + i * 2.4));
+    const hgt = (16 + 66 * k) * (0.65 + rnd() * 0.6) * (1 + 0.12 * Math.sin(tReal * 17 + i * 2.4));
     const wd = 7 + 16 * k * rnd();
     const fg = ctx.createLinearGradient(bx, fy, bx, fy - hgt);
     fg.addColorStop(0, 'rgba(255,120,26,0.85)');
@@ -104,7 +116,7 @@ function drawFire(ctx: CanvasRenderingContext2D, t: number, W: number, H: number
     ctx.fillStyle = fg;
     ctx.beginPath();
     ctx.moveTo(bx - wd, fy);
-    ctx.quadraticCurveTo(bx - wd * 0.7, fy - hgt * 0.55, bx + Math.sin(t * 9 + i) * 5, fy - hgt);
+    ctx.quadraticCurveTo(bx - wd * 0.7, fy - hgt * 0.55, bx + Math.sin(tReal * 9 + i) * 5, fy - hgt);
     ctx.quadraticCurveTo(bx + wd * 0.7, fy - hgt * 0.5, bx + wd, fy);
     ctx.closePath();
     ctx.fill();
@@ -124,10 +136,10 @@ function drawFire(ctx: CanvasRenderingContext2D, t: number, W: number, H: number
 
   // искры
   for (let i = 0; i < 7; i++) {
-    const seed = Math.floor(t * 2.2) + i * 31;
+    const seed = Math.floor(tReal * 2.2) + i * 31;
     const er = mulberry32(seed)();
     const er2 = mulberry32(seed + 5)();
-    const life = (t * 1.4 + er * 3) % 1.6;
+    const life = (tReal * 1.4 + er * 3) % 1.6;
     const ex = fx + (er - 0.5) * 70 + Math.sin(life * 4 + i) * 8;
     const ey = fy - life * H * 0.16 - er2 * 20;
     const ea = Math.max(0, 0.8 - life * 0.55) * k;
@@ -144,12 +156,13 @@ function drawFire(ctx: CanvasRenderingContext2D, t: number, W: number, H: number
    расширяется и стекает вниз, параллельно поднимается общий уровень воды.   */
 function drawFlood(
   ctx: CanvasRenderingContext2D,
-  t: number,
+  tSim: number,
+  tReal: number,
   W: number,
   H: number,
   sources?: WaterSource[],
 ) {
-  const k = clamp01(t / 18);
+  const k = clamp01(tSim / 150); // полный разлив за ~2,5 минуты симуляции
   // фолбэк: если водоисточники не найдены — условный источник снизу по центру
   const srcs: WaterSource[] =
     sources && sources.length
@@ -162,7 +175,7 @@ function drawFlood(
     const sy = s.y * H;
     const lobes = 6;
     for (let i = 0; i < lobes; i++) {
-      const phase = clamp01((t - i * 1.1) / 8);
+      const phase = clamp01((tSim - i * 12) / 75);
       if (phase <= 0.01) continue;
       // пятно расширяется вниз и в стороны от источника
       const spread = (i - (lobes - 1) / 2) / ((lobes - 1) / 2); // -1..1
@@ -185,7 +198,7 @@ function drawFlood(
       ctx.lineWidth = 1.5;
       ctx.setLineDash([4, 4]);
       ctx.beginPath();
-      ctx.arc(sx, sy, 12 + 8 * Math.sin(t * 2.2), 0, Math.PI * 2);
+      ctx.arc(sx, sy, 12 + 8 * Math.sin(tReal * 2.2), 0, Math.PI * 2);
       ctx.stroke();
       ctx.setLineDash([]);
     }
@@ -193,8 +206,15 @@ function drawFlood(
 
 }
 
-/* ---------------- ОБРУШЕНИЕ: завал + оседающее пылевое облако ---------------- */
-function drawCollapse(ctx: CanvasRenderingContext2D, t: number, W: number, H: number) {
+/* ---------------- ОБРУШЕНИЕ: завал + оседающее пылевое облако ----------------
+   Обрушение — мгновенное событие, развивается за секунды (реалистично). */
+function drawCollapse(
+  ctx: CanvasRenderingContext2D,
+  tSim: number,
+  _tReal: number,
+  W: number,
+  H: number,
+) {
   const cx = W * 0.215;
   const cy = H * 0.585;
   const rnd = mulberry32(4242);
@@ -245,12 +265,12 @@ function drawCollapse(ctx: CanvasRenderingContext2D, t: number, W: number, H: nu
   }
 
   // пылевое облако (оседает со временем)
-  const dustAlpha = Math.max(0, 0.3 - t * 0.02);
+  const dustAlpha = Math.max(0, 0.3 - tSim * 0.02);
   if (dustAlpha > 0.004) {
     for (let i = 0; i < 11; i++) {
-      const dx = cx + (rnd() - 0.5) * 190 - t * 6 * (i % 3 === 0 ? 1 : -0.4);
-      const dy = cy - 24 + (rnd() - 0.5) * 60 - Math.min(t * 4, 26);
-      const dr = 18 + Math.min(t * 15, 92) * (0.5 + rnd() * 0.6);
+      const dx = cx + (rnd() - 0.5) * 190 - tSim * 6 * (i % 3 === 0 ? 1 : -0.4);
+      const dy = cy - 24 + (rnd() - 0.5) * 60 - Math.min(tSim * 4, 26);
+      const dr = 18 + Math.min(tSim * 15, 92) * (0.5 + rnd() * 0.6);
       const g = ctx.createRadialGradient(dx, dy, 0, dx, dy, dr);
       g.addColorStop(0, `rgba(168,152,134,${dustAlpha})`);
       g.addColorStop(1, 'rgba(168,152,134,0)');
@@ -262,9 +282,10 @@ function drawCollapse(ctx: CanvasRenderingContext2D, t: number, W: number, H: nu
   }
 }
 
-/* ---------------- СДВИГ ЛАНДШАФТА: оползень свежего грунта ---------------- */
-function drawTerrain(ctx: CanvasRenderingContext2D, t: number, W: number, H: number) {
-  const k = clamp01(t / 7);
+/* ---------------- СДВИГ ЛАНДШАФТА: оползень свежего грунта ----------------
+   Сползание массива грунта — десятки секунд/минуты. */
+function drawTerrain(ctx: CanvasRenderingContext2D, tSim: number, W: number, H: number) {
+  const k = clamp01(tSim / 50);
   const cx = W * 0.455;
   const cy = H * 0.52;
   const s = 0.35 + 0.65 * k;

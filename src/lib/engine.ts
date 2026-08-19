@@ -101,6 +101,9 @@ export interface Engine {
   seekVideo: (t: number) => void;
   stopVideo: () => void;
   waterSourceCount: number;
+  // скорость развития сценариев / видео
+  speed: number;
+  setSpeed: (v: number) => void;
   bindLive: (el: HTMLCanvasElement | null) => void;
   bindRef: (el: HTMLCanvasElement | null) => void;
   bindHeat: (el: HTMLCanvasElement | null) => void;
@@ -141,6 +144,8 @@ export function useEngine(): Engine {
     currentTime: 0,
   });
   const [waterSourceCount, setWaterSourceCount] = useState(0);
+  // множитель скорости развития сценариев / видео
+  const [speed, setSpeedState] = useState(1);
 
   const liveRef = useRef<HTMLCanvasElement | null>(null);
   const refRef = useRef<HTMLCanvasElement | null>(null);
@@ -171,6 +176,10 @@ export function useEngine(): Engine {
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const videoUrlRef = useRef<string | null>(null);
   const videoActiveRef = useRef(false);
+  const videoPlayingRef = useRef(false);
+  // скорость симуляции: накопленное время + текущий множитель
+  const simAccum = useRef(0);
+  const speedRef = useRef(1);
   // водоисточники
   const waterSourcesRef = useRef<WaterSource[]>([]);
 
@@ -190,8 +199,8 @@ export function useEngine(): Engine {
   eventsRef.current = events;
   displayRef.current = display ? display.dets : detections;
 
-  const cfg = useRef({ cameraId, scenario, threshold, minArea, overlays, viewMode, ready });
-  cfg.current = { cameraId, scenario, threshold, minArea, overlays, viewMode, ready };
+  const cfg = useRef({ cameraId, scenario, threshold, minArea, overlays, viewMode, ready, speed });
+  cfg.current = { cameraId, scenario, threshold, minArea, overlays, viewMode, ready, speed };
 
   const pushEvent = useCallback((severity: Severity, text: string) => {
     const ev: LogEvent = {
@@ -258,6 +267,7 @@ export function useEngine(): Engine {
       setCameraId(id);
       cfg.current.cameraId = id;
       scenarioStart.current = performance.now();
+      simAccum.current = 0;
       activeClasses.current.clear();
       thermalLogged.current = false;
       prevDets.current = [];
@@ -276,6 +286,7 @@ export function useEngine(): Engine {
       setScenarioState(s);
       cfg.current.scenario = s;
       scenarioStart.current = performance.now();
+      simAccum.current = 0;
       activeClasses.current.clear();
       thermalLogged.current = false;
       prevDets.current = [];
@@ -368,10 +379,20 @@ export function useEngine(): Engine {
       v.playsInline = true;
       v.onloadedmetadata = () => {
         setVideo((s) => ({ ...s, duration: v.duration || 0 }));
-        v.play().catch(() => {});
+        const sp = speedRef.current;
+        if (sp <= 16) {
+          v.playbackRate = sp;
+          v.play().catch(() => {});
+        } else {
+          // слишком быстро для playbackRate — листаем кадры вручную в цикле
+          v.pause();
+        }
       };
       v.onplay = () => setVideo((s) => ({ ...s, playing: true }));
-      v.onpause = () => setVideo((s) => ({ ...s, playing: false }));
+      v.onpause = () => {
+        // в ручном режиме (×>16) видео всегда на паузе — статус держим сами
+        if (speedRef.current <= 16) setVideo((s) => ({ ...s, playing: false }));
+      };
       videoElRef.current = v;
       videoUrlRef.current = url;
       videoActiveRef.current = true;
@@ -385,6 +406,7 @@ export function useEngine(): Engine {
       prevDets.current = [];
       setDetections([]);
       resetPlayback();
+      videoPlayingRef.current = true;
       setVideo({ active: true, playing: true, name: file.name, duration: 0, currentTime: 0 });
       pushEvent('info', `Видео загружено: ${file.name} · сравнение с эталоном в реальном времени`);
     },
@@ -394,8 +416,15 @@ export function useEngine(): Engine {
   const toggleVideoPlay = useCallback(() => {
     const v = videoElRef.current;
     if (!v) return;
-    if (v.paused) v.play().catch(() => {});
-    else v.pause();
+    const next = !videoPlayingRef.current;
+    videoPlayingRef.current = next;
+    if (speedRef.current <= 16) {
+      if (next) v.play().catch(() => {});
+      else v.pause();
+    } else {
+      // ручной режим: видео остаётся на паузе, кадры листаются в цикле
+      setVideo((s) => ({ ...s, playing: next }));
+    }
   }, []);
 
   const seekVideo = useCallback((t: number) => {
@@ -410,6 +439,30 @@ export function useEngine(): Engine {
     resetPlayback();
     pushEvent('info', 'Видео остановлено · возврат к камере');
   }, [pushEvent, resetPlayback, stopVideoInternal]);
+
+  /* ---------- множитель скорости развития сценариев / видео ---------- */
+  const setSpeed = useCallback(
+    (v: number) => {
+      // фиксируем накопленное симуляционное время, чтобы не было скачка
+      simAccum.current += ((performance.now() - scenarioStart.current) / 1000) * speedRef.current;
+      scenarioStart.current = performance.now();
+      speedRef.current = v;
+      setSpeedState(v);
+      cfg.current.speed = v;
+      // видео: playbackRate поддерживается браузером до 16×, выше — покадровая перемотка
+      const el = videoElRef.current;
+      if (videoActiveRef.current && el) {
+        if (v <= 16) {
+          el.playbackRate = v;
+          if (videoPlayingRef.current) el.play().catch(() => {});
+        } else {
+          el.pause(); // кадры будем листать вручную в цикле отрисовки
+        }
+      }
+      pushEvent('info', `Скорость развития сценария: ×${v}`);
+    },
+    [pushEvent],
+  );
 
   const resetCustom = useCallback(() => {
     stopVideoInternal();
@@ -467,6 +520,7 @@ export function useEngine(): Engine {
     let fpsT = performance.now();
     let noiseFlip = 0;
     let lastVT = 0;
+    let lastFrameT = performance.now();
 
     const analyze = () => {
       const cv = liveRef.current;
@@ -693,7 +747,18 @@ export function useEngine(): Engine {
           drawCover(ctx, cur, VIEW_W, VIEW_H);
           const isDemoCur = !uploadedCurImg.current;
           if (isDemoCur && c.scenario !== 'calm') {
-            drawScenario(ctx, c.scenario, (now - scenarioStart.current) / 1000, VIEW_W, VIEW_H, waterSourcesRef.current);
+            // симуляционное время: накопленное + текущий интервал × множитель скорости
+            const tSim =
+              simAccum.current + ((now - scenarioStart.current) / 1000) * speedRef.current;
+            drawScenario(
+              ctx,
+              c.scenario,
+              tSim,
+              now / 1000, // реальное время — для мерцания и дрейфа
+              VIEW_W,
+              VIEW_H,
+              waterSourcesRef.current,
+            );
           }
           if (isDemoCur) {
             noiseFlip ^= 1;
@@ -818,8 +883,19 @@ export function useEngine(): Engine {
         lastAn = now;
         analyze();
       }
-      // обновление позиции видео (для ползунка)
+      // видео: при ×>16 playbackRate недоступен — листаем кадры вручную
       const v = videoElRef.current;
+      const dtF = (now - lastFrameT) / 1000;
+      lastFrameT = now;
+      if (videoActiveRef.current && v && speedRef.current > 16 && videoPlayingRef.current) {
+        const dur = v.duration || 0;
+        if (dur > 0) {
+          let nt = v.currentTime + dtF * speedRef.current;
+          if (nt >= dur) nt -= dur; // зацикливание
+          v.currentTime = nt;
+        }
+      }
+      // обновление позиции видео (для ползунка)
       if (videoActiveRef.current && v && now - lastVT > 250) {
         lastVT = now;
         setVideo((s) => (s.active ? { ...s, currentTime: v.currentTime } : s));
@@ -939,6 +1015,8 @@ export function useEngine(): Engine {
     seekVideo,
     stopVideo,
     waterSourceCount,
+    speed,
+    setSpeed,
     bindLive,
     bindRef,
     bindHeat,

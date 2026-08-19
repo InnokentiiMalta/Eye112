@@ -146,7 +146,8 @@ export default function Viewport({ engine }: { engine: Engine }) {
           <span className="text-crit">●</span> REC · <HudClock /> · 25 FPS
         </div>
         <div className="pointer-events-none absolute bottom-3 right-4 font-mono text-[10.5px] text-dim">
-          1280×720 · АНАЛИЗ 320×180 · Δ-ПОРОГ {engine.threshold}
+          1280×720 · Δ-ПОРОГ {engine.threshold} ·{' '}
+          <span className={engine.speed !== 1 ? 'font-bold text-teal' : ''}>×{engine.speed}</span>
         </div>
 
         {/* баннер тревоги */}

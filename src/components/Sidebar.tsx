@@ -84,6 +84,36 @@ export default function Sidebar({ engine }: { engine: Engine }) {
       </div>
 
       <SectionTitle>Тестовые сценарии ЧС</SectionTitle>
+      {/* множитель скорости развития */}
+      <div className="mb-2 rounded-[5px] border border-line bg-panel2 px-2.5 py-2">
+        <div className="mb-1.5 flex items-baseline justify-between">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-dim">
+            Скорость развития
+          </span>
+          <span className="font-mono text-[11px] font-bold text-teal tabular-nums">
+            ×{engine.speed}
+          </span>
+        </div>
+        <div className="grid grid-cols-5 gap-1">
+          {[1, 2, 3, 10, 50].map((v) => (
+            <button
+              key={v}
+              onClick={() => engine.setSpeed(v)}
+              className={`rounded-[4px] border px-1 py-1 font-mono text-[10.5px] font-bold transition-all duration-150 ${
+                engine.speed === v
+                  ? 'border-teal/60 bg-teal/15 text-teal shadow-[0_0_10px_rgba(47,214,195,0.2)]'
+                  : 'border-line bg-panel text-mut hover:border-line2 hover:text-fg'
+              }`}
+            >
+              ×{v}
+            </button>
+          ))}
+        </div>
+        <div className="mt-1.5 text-[9px] leading-snug text-dim">
+          ×1 — реалистичный темп (очаг развивается ~1,5 мин). Ускорение действует и на
+          загруженное видео.
+        </div>
+      </div>
       <div className="space-y-1.5">
         {SCENARIOS.map((s) => {
           const Icon = SCENARIO_ICON[s.id];
