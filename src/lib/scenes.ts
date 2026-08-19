@@ -27,6 +27,12 @@ export const CAMERAS: CameraDef[] = [
     short: 'КАМ-03',
     src: 'https://image.qwenlm.ai/generated-images/12f90e78-4ca9-4e70-aa15-1be4fffd54e5/_result.png',
   },
+  {
+    id: 'cam4',
+    name: 'Камера 04 · Лесной массив (спутник)',
+    short: 'КАМ-04',
+    src: 'https://image.qwenlm.ai/generated-images/036de0a2-8712-48d4-b107-c8c8cf067bd7/_result.png',
+  },
 ];
 
 function mulberry32(seed: number) {
@@ -301,6 +307,39 @@ export function makeSyntheticScene(idx: number): HTMLCanvasElement {
     ctx.lineWidth = 14;
     riverPath();
     ctx.stroke();
+
+    // спутниковая стилистика (КАМ-04): делянки вырубок и прямые просеки
+    if (idx === 3) {
+      for (let i = 0; i < 4; i++) {
+        const px = W * (0.12 + rnd() * 0.7);
+        const py = H * (0.12 + rnd() * 0.66);
+        const pw = 90 + rnd() * 120;
+        const ph = 60 + rnd() * 80;
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate((rnd() - 0.5) * 0.5);
+        ctx.fillStyle = 'rgba(148,124,88,0.85)';
+        ctx.fillRect(-pw / 2, -ph / 2, pw, ph);
+        ctx.strokeStyle = 'rgba(120,96,66,0.8)';
+        ctx.lineWidth = 2;
+        for (let s = -pw / 2 + 10; s < pw / 2; s += 12) {
+          ctx.beginPath();
+          ctx.moveTo(s, -ph / 2 + 4);
+          ctx.lineTo(s, ph / 2 - 4);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+      // прямые противопожарные просеки
+      ctx.strokeStyle = 'rgba(150,132,96,0.9)';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(W * 0.08, -10);
+      ctx.lineTo(W * 0.2, H + 10);
+      ctx.moveTo(W * 0.86, -10);
+      ctx.lineTo(W * 0.74, H + 10);
+      ctx.stroke();
+    }
   }
 
   // зерно текстуры
