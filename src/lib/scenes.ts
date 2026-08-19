@@ -21,6 +21,12 @@ export const CAMERAS: CameraDef[] = [
     short: 'КАМ-02',
     src: 'https://image.qwenlm.ai/generated-images/52cb0b5b-956a-45b3-979c-fa7110b93339/_result.png',
   },
+  {
+    id: 'cam3',
+    name: 'Камера 03 · Лесной массив (БПЛА 500 м)',
+    short: 'КАМ-03',
+    src: 'https://image.qwenlm.ai/generated-images/12f90e78-4ca9-4e70-aa15-1be4fffd54e5/_result.png',
+  },
 ];
 
 function mulberry32(seed: number) {
@@ -127,7 +133,7 @@ export function makeSyntheticScene(idx: number): HTMLCanvasElement {
   c.width = W;
   c.height = H;
   const ctx = c.getContext('2d')!;
-  const rnd = mulberry32(idx === 0 ? 1101 : 2202);
+  const rnd = mulberry32([1101, 2202, 3303][idx] ?? 4404);
 
   // небо
   const sky = ctx.createLinearGradient(0, 0, 0, H * 0.4);
@@ -197,7 +203,7 @@ export function makeSyntheticScene(idx: number): HTMLCanvasElement {
     ctx.lineTo(0, H);
     ctx.closePath();
     ctx.fill();
-  } else {
+  } else if (idx === 1) {
     // резервуары
     for (let t = 0; t < 4; t++) {
       const tx = W * 0.1 + (t % 2) * W * 0.28;
@@ -228,6 +234,73 @@ export function makeSyntheticScene(idx: number): HTMLCanvasElement {
     // грунтовая дорога
     ctx.fillStyle = '#8d8272';
     ctx.fillRect(0, H * 0.8, W, H * 0.08);
+  } else {
+    // вид сверху (БПЛА, ~500 м): лесной массив
+    const fg = ctx.createLinearGradient(0, 0, W, H);
+    fg.addColorStop(0, '#35522f');
+    fg.addColorStop(0.55, '#2c4629');
+    fg.addColorStop(1, '#263d24');
+    ctx.fillStyle = fg;
+    ctx.fillRect(0, 0, W, H);
+
+    // прогалины и поляны
+    for (let i = 0; i < 5; i++) {
+      ctx.fillStyle = 'rgba(124,142,86,0.5)';
+      ctx.beginPath();
+      ctx.ellipse(rnd() * W, rnd() * H, 60 + rnd() * 90, 34 + rnd() * 60, rnd() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // кроны деревьев
+    for (let i = 0; i < 900; i++) {
+      const x = rnd() * W;
+      const y = rnd() * H;
+      const r = 5 + rnd() * 12;
+      const t = rnd();
+      let cr = 40, cg = 70, cb = 36;
+      if (t < 0.5) { cr = 32 + rnd() * 14; cg = 56 + rnd() * 16; cb = 32 + rnd() * 10; }
+      else if (t < 0.85) { cr = 52 + rnd() * 18; cg = 86 + rnd() * 22; cb = 42 + rnd() * 12; }
+      else { cr = 108 + rnd() * 26; cg = 110 + rnd() * 22; cb = 48 + rnd() * 14; }
+      ctx.fillStyle = `rgb(${cr | 0},${cg | 0},${cb | 0})`;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = `rgba(${Math.min(255, cr + 26) | 0},${Math.min(255, cg + 30) | 0},${(cb + 14) | 0},0.5)`;
+      ctx.beginPath();
+      ctx.arc(x - r * 0.25, y - r * 0.25, r * 0.55, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // лесовозные дороги
+    ctx.strokeStyle = '#8a7355';
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.moveTo(-10, H * 0.92);
+    ctx.bezierCurveTo(W * 0.2, H * 0.8, W * 0.18, H * 0.5, W * 0.4, H * 0.4);
+    ctx.bezierCurveTo(W * 0.6, H * 0.3, W * 0.7, H * 0.16, W * 1.02, H * 0.08);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(122,100,72,0.75)';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(W * 0.4, H * 0.4);
+    ctx.bezierCurveTo(W * 0.5, H * 0.55, W * 0.62, H * 0.6, W * 0.78, H * 0.78);
+    ctx.stroke();
+
+    // извилистая река
+    const riverPath = () => {
+      ctx.beginPath();
+      ctx.moveTo(-20, H * 0.2);
+      ctx.bezierCurveTo(W * 0.22, H * 0.1, W * 0.28, H * 0.42, W * 0.52, H * 0.44);
+      ctx.bezierCurveTo(W * 0.78, H * 0.46, W * 0.82, H * 0.66, W * 1.02, H * 0.62);
+    };
+    ctx.strokeStyle = '#4a6b7d';
+    ctx.lineWidth = 30;
+    riverPath();
+    ctx.stroke();
+    ctx.strokeStyle = '#5f8396';
+    ctx.lineWidth = 14;
+    riverPath();
+    ctx.stroke();
   }
 
   // зерно текстуры
