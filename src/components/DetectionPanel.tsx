@@ -103,10 +103,38 @@ export default function DetectionPanel({ engine }: { engine: Engine }) {
         </div>
       </div>
 
-      {/* классификация: журнал с перемоткой */}
+      {/* термоточки — вверх */}
+      <div className="panel p-3.5">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="hud-label">Термоточки</div>
+          <IconThermo className={`h-4 w-4 ${thermals.length ? 'text-thermo' : 'text-dim'}`} />
+        </div>
+        {thermals.length === 0 ? (
+          <div className="py-1.5 text-[11.5px] text-dim">Локальных тепловых максимумов не зафиксировано.</div>
+        ) : (
+          <div className="space-y-1.5">
+            {thermals.map((d) => (
+              <div
+                key={`t-${d.id}`}
+                className="slide-in-up flex items-center gap-2.5 rounded-[5px] border border-thermo/30 bg-thermo/8 px-2.5 py-2"
+              >
+                <span className="h-2 w-2 shrink-0 rounded-full bg-thermo led-blink" />
+                <span className="font-mono text-[15px] font-bold text-thermo tabular-nums">
+                  ≈{d.thermal!.tempC}°C
+                </span>
+                <span className="ml-auto text-right font-mono text-[9.5px] text-dim">
+                  ({Math.round(d.thermal!.x)}; {Math.round(d.thermal!.y)}) · {d.label}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* журнал — посередине */}
       <div className="panel flex flex-col p-3.5">
         <div className="mb-1 flex items-center justify-between">
-          <div className="hud-label">Классификация аномалий</div>
+          <div className="hud-label">Журнал</div>
           <span className="font-mono text-[9.5px] text-dim tabular-nums">
             {engine.following ? 'LIVE' : `t+${fmtElapsed(shownElapsed)}`} · {engine.display?.clock ?? '—:—:—'}
           </span>
@@ -123,7 +151,9 @@ export default function DetectionPanel({ engine }: { engine: Engine }) {
             aria-label="Перемотка журнала классификаций"
           />
           <div className="mt-1 flex items-center justify-between">
-            <span className="font-mono text-[9px] text-dim">буфер −{fmtElapsed(Math.max(0, engine.historyLen / 5))}</span>
+            <span className="font-mono text-[9px] text-dim">
+              буфер −{fmtElapsed(Math.max(0, engine.historyLen / 5))}
+            </span>
             <button
               onClick={engine.followLive}
               className={`rounded-[4px] px-2 py-0.5 font-mono text-[9.5px] font-bold tracking-widest transition-colors ${
@@ -134,57 +164,15 @@ export default function DetectionPanel({ engine }: { engine: Engine }) {
             >
               {engine.following ? '● В ЭФИРЕ' : '▶ К ЭФИРУ'}
             </button>
-            <span className="font-mono text-[9px] text-dim">кадр {Math.max(0, scrub)}/{maxScrub}</span>
+            <span className="font-mono text-[9px] text-dim">
+              кадр {Math.max(0, scrub)}/{maxScrub}
+            </span>
           </div>
         </div>
 
-        {/* текущий (выбранный) момент */}
-        {dets.length > 0 ? (
-          <div className="mb-2 space-y-1.5">
-            {dets.slice(0, 4).map((d) => {
-              const Icon = KLASS_ICON[d.klass];
-              const meta = KLASS_META[d.klass];
-              return (
-                <div
-                  key={d.id}
-                  className="rounded-[5px] border border-line bg-panel2 px-2.5 py-1.5"
-                  style={{ borderLeft: `3px solid ${meta.color}` }}
-                >
-                  <div className="flex items-center gap-2">
-                    <Icon className="h-3.5 w-3.5 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-fg">{d.label}</span>
-                    {d.thermal && (
-                      <span className="font-mono text-[10px] font-bold text-thermo">≈{d.thermal.tempC}°C</span>
-                    )}
-                    <span
-                      className="rounded-[3px] px-1.5 py-0.5 font-mono text-[9.5px] font-bold"
-                      style={{ color: meta.color, background: `${meta.color}1f` }}
-                    >
-                      {Math.round(d.confidence * 100)}%
-                    </span>
-                  </div>
-                  <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-line">
-                    <div
-                      className="h-full rounded-full transition-all duration-300"
-                      style={{ width: `${Math.round(d.confidence * 100)}%`, background: meta.color }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="mb-2 flex items-center gap-2 rounded-[5px] border border-line bg-panel2 px-2.5 py-2">
-            <IconCheck className="h-4 w-4 shrink-0 text-okc/70" />
-            <span className="text-[11.5px] text-dim">
-              Расхождений с эталоном выше порога нет — сцена стабильна.
-            </span>
-          </div>
-        )}
-
-        {/* журнал */}
-        <div className="mb-1.5 mt-1 flex items-baseline justify-between">
-          <div className="hud-label">Журнал · {engine.journal.length}</div>
+        {/* записи */}
+        <div className="mb-1.5 flex items-baseline justify-between">
+          <div className="hud-label">Записи · {engine.journal.length}</div>
           <span className="font-mono text-[9px] text-dim">в окне — последние 10</span>
         </div>
         <div
@@ -192,7 +180,7 @@ export default function DetectionPanel({ engine }: { engine: Engine }) {
           onScroll={(e) => {
             stickTop.current = (e.target as HTMLDivElement).scrollTop < 30;
           }}
-          className="max-h-[336px] space-y-1 overflow-y-auto pr-1"
+          className="max-h-[300px] space-y-1 overflow-y-auto pr-1"
         >
           {engine.journal.length === 0 && (
             <div className="py-4 text-center font-mono text-[10px] text-dim">
@@ -231,30 +219,58 @@ export default function DetectionPanel({ engine }: { engine: Engine }) {
         </div>
       </div>
 
-      {/* термоточки */}
-      <div className="panel p-3.5">
+      {/* классификация аномалий — в самый низ */}
+      <div className="panel flex flex-col p-3.5">
         <div className="mb-2 flex items-center justify-between">
-          <div className="hud-label">Термоточки</div>
-          <IconThermo className={`h-4 w-4 ${thermals.length ? 'text-thermo' : 'text-dim'}`} />
+          <div className="hud-label">Классификация аномалий</div>
+          <span className="font-mono text-[9.5px] text-dim tabular-nums">
+            обнаружено: {dets.length}
+          </span>
         </div>
-        {thermals.length === 0 ? (
-          <div className="py-1.5 text-[11.5px] text-dim">Локальных тепловых максимумов не зафиксировано.</div>
-        ) : (
+        {dets.length > 0 ? (
           <div className="space-y-1.5">
-            {thermals.map((d) => (
-              <div
-                key={`t-${d.id}`}
-                className="slide-in-up flex items-center gap-2.5 rounded-[5px] border border-thermo/30 bg-thermo/8 px-2.5 py-2"
-              >
-                <span className="h-2 w-2 shrink-0 rounded-full bg-thermo led-blink" />
-                <span className="font-mono text-[15px] font-bold text-thermo tabular-nums">
-                  ≈{d.thermal!.tempC}°C
-                </span>
-                <span className="ml-auto font-mono text-[9.5px] text-dim">
-                  ({Math.round(d.thermal!.x)}; {Math.round(d.thermal!.y)}) · {d.label}
-                </span>
-              </div>
-            ))}
+            {dets.slice(0, 5).map((d) => {
+              const Icon = KLASS_ICON[d.klass];
+              const meta = KLASS_META[d.klass];
+              return (
+                <div
+                  key={d.id}
+                  className="slide-in-up rounded-[5px] border border-line bg-panel2 px-2.5 py-1.5"
+                  style={{ borderLeft: `3px solid ${meta.color}` }}
+                >
+                  <div className="flex items-center gap-2">
+                    <Icon className="h-3.5 w-3.5 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-fg">
+                      {d.label}
+                    </span>
+                    {d.thermal && (
+                      <span className="font-mono text-[10px] font-bold text-thermo">
+                        ≈{d.thermal.tempC}°C
+                      </span>
+                    )}
+                    <span
+                      className="rounded-[3px] px-1.5 py-0.5 font-mono text-[9.5px] font-bold"
+                      style={{ color: meta.color, background: `${meta.color}1f` }}
+                    >
+                      {Math.round(d.confidence * 100)}%
+                    </span>
+                  </div>
+                  <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-line">
+                    <div
+                      className="h-full rounded-full transition-all duration-300"
+                      style={{ width: `${Math.round(d.confidence * 100)}%`, background: meta.color }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 rounded-[5px] border border-line bg-panel2 px-2.5 py-2">
+            <IconCheck className="h-4 w-4 shrink-0 text-okc/70" />
+            <span className="text-[11.5px] text-dim">
+              Расхождений с эталоном выше порога нет — сцена стабильна.
+            </span>
           </div>
         )}
       </div>
