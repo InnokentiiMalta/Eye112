@@ -21,7 +21,7 @@ const TOGGLES: Array<{ key: keyof OverlaySettings; label: string; Icon: (p: { cl
 export default function BottomDock({ engine }: { engine: Engine }) {
   const dockRef = useRef<HTMLDivElement>(null);
   const [leftPct, setLeftPct] = useState(38);
-  const [height, setHeight] = useState(250);
+  const [height, setHeight] = useState(300);
   const dragRef = useRef<'w' | 'h' | null>(null);
 
   const startWidth = (e: React.PointerEvent) => {
@@ -40,7 +40,7 @@ export default function BottomDock({ engine }: { engine: Engine }) {
       setLeftPct(Math.min(68, Math.max(22, pct)));
     } else {
       const h = e.clientY - r.top;
-      setHeight(Math.min(460, Math.max(180, h)));
+      setHeight(Math.min(620, Math.max(200, h)));
     }
   };
   const endDrag = () => {
@@ -48,14 +48,8 @@ export default function BottomDock({ engine }: { engine: Engine }) {
   };
 
   return (
-    <div className="relative">
-      <div
-        ref={dockRef}
-        className="flex w-full overflow-hidden"
-        style={{ height }}
-        onPointerMove={onMove}
-        onPointerUp={endDrag}
-      >
+    <div ref={dockRef} className="relative" onPointerMove={onMove} onPointerUp={endDrag}>
+      <div className="flex w-full overflow-hidden" style={{ height }}>
         {/* параметры конвейера */}
         <div className="panel flex h-full min-w-0 flex-col overflow-hidden" style={{ width: `${leftPct}%` }}>
           <div className="flex-1 overflow-y-auto p-3.5">

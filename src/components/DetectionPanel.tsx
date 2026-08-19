@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import type { Engine } from '../lib/engine';
 import type { Klass, SystemStatus } from '../lib/types';
 import { KLASS_META } from '../lib/types';
@@ -57,6 +58,14 @@ export default function DetectionPanel({ engine }: { engine: Engine }) {
     ? engine.journal[0]?.id
     : engine.journal.find((e) => e.histIdx === engine.scrubIndex)?.id;
 
+  // журнал: окно на последние 10 записей, прокрутка к предыдущим,
+  // автоследование за свежими записями, пока оператор у верха ленты
+  const journalRef = useRef<HTMLDivElement>(null);
+  const stickTop = useRef(true);
+  useEffect(() => {
+    if (stickTop.current && journalRef.current) journalRef.current.scrollTop = 0;
+  }, [engine.journal.length]);
+
   return (
     <div className="flex min-w-0 flex-col gap-3">
       {/* статус */}
@@ -95,7 +104,7 @@ export default function DetectionPanel({ engine }: { engine: Engine }) {
       </div>
 
       {/* классификация: журнал с перемоткой */}
-      <div className="panel flex min-h-0 flex-1 flex-col p-3.5">
+      <div className="panel flex flex-col p-3.5">
         <div className="mb-1 flex items-center justify-between">
           <div className="hud-label">Классификация аномалий</div>
           <span className="font-mono text-[9.5px] text-dim tabular-nums">
@@ -174,8 +183,17 @@ export default function DetectionPanel({ engine }: { engine: Engine }) {
         )}
 
         {/* журнал */}
-        <div className="hud-label mb-1.5 mt-1">Журнал · {engine.journal.length}</div>
-        <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
+        <div className="mb-1.5 mt-1 flex items-baseline justify-between">
+          <div className="hud-label">Журнал · {engine.journal.length}</div>
+          <span className="font-mono text-[9px] text-dim">в окне — последние 10</span>
+        </div>
+        <div
+          ref={journalRef}
+          onScroll={(e) => {
+            stickTop.current = (e.target as HTMLDivElement).scrollTop < 30;
+          }}
+          className="max-h-[336px] space-y-1 overflow-y-auto pr-1"
+        >
           {engine.journal.length === 0 && (
             <div className="py-4 text-center font-mono text-[10px] text-dim">
               записей пока нет — события появятся здесь
