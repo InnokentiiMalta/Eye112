@@ -103,7 +103,25 @@ export default function DetectionPanel({ engine }: { engine: Engine }) {
         </div>
       </div>
 
-      {/* термоточки — вверх */}
+      {/* метрики — над термоточками */}
+      <div className="grid grid-cols-4 gap-1.5">
+        {[
+          { k: 'АНАЛИЗ', v: `${engine.stats.lastMs || '—'}`, u: 'мс' },
+          { k: 'СЕГМЕНТОВ', v: `${engine.stats.segments}`, u: '' },
+          { k: 'КАДР', v: `${engine.stats.fps}`, u: 'к/с' },
+          { k: 'T-МАКС', v: `${peakTemp}`, u: '°C' },
+        ].map((m) => (
+          <div key={m.k} className="panel px-2 py-2 text-center">
+            <div className="hud-label text-[8.5px]!">{m.k}</div>
+            <div className="font-mono text-[14px] font-bold text-fg tabular-nums">
+              {m.v}
+              <span className="text-[9px] font-medium text-dim"> {m.u}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* термоточки */}
       <div className="panel p-3.5">
         <div className="mb-2 flex items-center justify-between">
           <div className="hud-label">Термоточки</div>
@@ -273,24 +291,6 @@ export default function DetectionPanel({ engine }: { engine: Engine }) {
             </span>
           </div>
         )}
-      </div>
-
-      {/* метрики */}
-      <div className="grid grid-cols-4 gap-1.5">
-        {[
-          { k: 'АНАЛИЗ', v: `${engine.stats.lastMs || '—'}`, u: 'мс' },
-          { k: 'СЕГМЕНТОВ', v: `${engine.stats.segments}`, u: '' },
-          { k: 'КАДР', v: `${engine.stats.fps}`, u: 'к/с' },
-          { k: 'T-МАКС', v: `${peakTemp}`, u: '°C' },
-        ].map((m) => (
-          <div key={m.k} className="panel px-2 py-2 text-center">
-            <div className="hud-label text-[8.5px]!">{m.k}</div>
-            <div className="font-mono text-[14px] font-bold text-fg tabular-nums">
-              {m.v}
-              <span className="text-[9px] font-medium text-dim"> {m.u}</span>
-            </div>
-          </div>
-        ))}
       </div>
     </div>
   );
