@@ -934,7 +934,7 @@ export function useEngine(): Engine {
     if (overlayRef.current) ctx.drawImage(overlayRef.current, 0, 0);
     const a = document.createElement('a');
     a.href = out.toDataURL('image/png');
-    a.download = `pulsar_frame_${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
+    a.download = `oko_frame_${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
     a.click();
     pushEvent('info', 'Снимок кадра сохранён (PNG)');
   }, [pushEvent]);
@@ -942,7 +942,7 @@ export function useEngine(): Engine {
   const exportReport = useCallback(() => {
     const cam = CAMERAS.find((x) => x.id === cfg.current.cameraId);
     const report = {
-      system: 'ПУЛЬСАР·М v2.4',
+      system: 'ОКО v3.0',
       generatedAt: new Date().toISOString(),
       camera: cam ? cam.name : cfg.current.cameraId,
       scenario: cfg.current.scenario,
@@ -961,7 +961,7 @@ export function useEngine(): Engine {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `pulsar_report_${Date.now()}.json`;
+    a.download = `oko_report_${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
     pushEvent('info', 'Отчёт сформирован (JSON)');

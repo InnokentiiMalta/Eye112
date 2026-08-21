@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { SystemStatus } from '../lib/types';
-import { IconRadar } from './icons';
+import { IconEye } from './icons';
 
 const STATUS_CHIP: Record<SystemStatus, { text: string; cls: string }> = {
   norm: { text: 'ШТАТНО', cls: 'text-okc border-okc/40 bg-okc/10' },
@@ -41,13 +41,13 @@ export default function TopBar({ status, cameraName, scenarioTitle, ready }: Pro
       <div className="mx-auto flex h-14 max-w-[1660px] items-center gap-4 px-3 lg:px-4">
         <div className="flex items-center gap-3">
           <div className="grid h-9 w-9 place-items-center rounded-[5px] border border-teal/40 bg-teal/10 text-teal shadow-[0_0_18px_rgba(47,214,195,0.25)]">
-            <IconRadar className="h-5 w-5" />
+            <IconEye className="h-5 w-5" />
           </div>
           <div className="leading-tight">
-            <div className="font-display text-[15px] font-bold tracking-[0.08em] text-fg">
-              ПУЛЬСАР<span className="text-teal">·М</span>
+            <div className="font-display text-[16px] font-bold tracking-[0.22em] text-fg">
+              ОК<span className="text-teal">О</span>
             </div>
-            <div className="hud-label">комплекс видеоаналитики ЧС · v2.4</div>
+            <div className="hud-label">комплекс видеоаналитики ЧС · v3.0</div>
           </div>
         </div>
 
