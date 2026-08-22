@@ -82,6 +82,12 @@ export default function Sidebar({ engine }: { engine: Engine }) {
           );
         })}
       </div>
+      {engine.cameraId === 'cam4' && (
+        <p className="slide-in-up mt-2 rounded-[4px] border border-teal/25 bg-teal/5 px-2 py-1.5 text-[10px] leading-snug text-teal/90">
+          Режим карты: в строке вьюпорта доступны масштаб (м/px) и инструмент «Линейка» для
+          измерения расстояний.
+        </p>
+      )}
 
       <SectionTitle>Тестовые сценарии ЧС</SectionTitle>
       {/* множитель скорости развития */}

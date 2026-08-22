@@ -4,7 +4,16 @@ import { VIEW_H, VIEW_W } from '../lib/engine';
 import { AW, AH } from '../lib/pipeline';
 import { CAMERAS } from '../lib/scenes';
 import type { ViewMode } from '../lib/types';
-import { IconAlert, IconBoxFrame, IconCompare, IconEye, IconHeat, IconRadar } from './icons';
+import {
+  IconAlert,
+  IconBoxFrame,
+  IconCompare,
+  IconEye,
+  IconHeat,
+  IconRadar,
+  IconReset,
+  IconRuler,
+} from './icons';
 
 const MODES: Array<{ id: ViewMode; label: string; Icon: (p: { className?: string }) => React.ReactElement }> = [
   { id: 'live', label: 'Наблюдение', Icon: IconEye },
@@ -22,12 +31,40 @@ function HudClock() {
   return <span className="tabular-nums">{now.toTimeString().slice(0, 8)}</span>;
 }
 
+/** Формат расстояния для чипа в панели инструментов. */
+function fmtDist(meters: number): string {
+  return meters >= 1000 ? `${(meters / 1000).toFixed(2).replace('.', ',')} км` : `${Math.round(meters)} м`;
+}
+
 export default function Viewport({ engine }: { engine: Engine }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
 
   const cam = CAMERAS.find((c) => c.id === engine.cameraId);
   const mode = engine.viewMode;
+  const isMap = engine.cameraId === 'cam4';
+  const rulerOn = engine.rulerActive && mode !== 'compare' && mode !== 'reference';
+
+  // Esc — сброс замера
+  useEffect(() => {
+    if (!engine.rulerActive) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') engine.resetRuler();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engine.rulerActive]);
+
+  const toView = (clientX: number, clientY: number) => {
+    const el = wrapRef.current;
+    if (!el) return { x: 0, y: 0 };
+    const r = el.getBoundingClientRect();
+    return {
+      x: ((clientX - r.left) / r.width) * VIEW_W,
+      y: ((clientY - r.top) / r.height) * VIEW_H,
+    };
+  };
 
   const setPos = (clientX: number) => {
     const el = wrapRef.current;
@@ -41,12 +78,24 @@ export default function Viewport({ engine }: { engine: Engine }) {
   const peakTemp = engine.display?.peakTemp ?? engine.stats.peakTemp;
   const tempColor = peakTemp > 110 ? 'text-crit' : peakTemp > 55 ? 'text-warn' : 'text-teal';
 
+  // зафиксированное расстояние линейки (для чипа)
+  const rulerMeters =
+    engine.ruler.phase === 'done'
+      ? Math.hypot(engine.ruler.bx - engine.ruler.ax, engine.ruler.by - engine.ruler.ay) * engine.mapScale
+      : 0;
+  const rulerPx =
+    engine.ruler.phase === 'done'
+      ? Math.hypot(engine.ruler.bx - engine.ruler.ax, engine.ruler.by - engine.ruler.ay)
+      : 0;
+
+  const coverageM = VIEW_W * engine.mapScale;
+
   const corner = 'pointer-events-none absolute h-5 w-5 border-teal/50';
 
   return (
     <div className="panel overflow-hidden">
-      {/* панель режимов */}
-      <div className="flex items-center gap-1 border-b border-line px-2.5 py-1.5">
+      {/* панель режимов + инструменты карты */}
+      <div className="flex flex-wrap items-center gap-1 border-b border-line px-2.5 py-1.5">
         {MODES.map(({ id, label, Icon }) => (
           <button
             key={id}
@@ -60,6 +109,56 @@ export default function Viewport({ engine }: { engine: Engine }) {
             <Icon className="h-3.5 w-3.5" /> {label}
           </button>
         ))}
+
+        <span className="mx-1 h-5 w-px bg-line" />
+
+        {/* линейка */}
+        <button
+          onClick={engine.toggleRuler}
+          title="Инструмент «Линейка»: клик — точка A, второй клик — точка B, Esc — сброс"
+          className={`flex items-center gap-1.5 rounded-[4px] px-2.5 py-1.5 text-[11.5px] font-semibold transition-colors ${
+            engine.rulerActive
+              ? 'bg-thermo/15 text-thermo shadow-[inset_0_0_0_1px_rgba(255,209,102,0.45)]'
+              : 'text-mut hover:bg-panel3 hover:text-fg'
+          }`}
+        >
+          <IconRuler className="h-3.5 w-3.5" /> Линейка
+        </button>
+        {engine.rulerActive && (
+          <button
+            onClick={engine.resetRuler}
+            title="Сбросить замер"
+            className="slide-in-up flex items-center gap-1 rounded-[4px] px-2 py-1.5 text-[11px] font-semibold text-mut transition-colors hover:bg-panel3 hover:text-crit"
+          >
+            <IconReset className="h-3.5 w-3.5" /> Сброс
+          </button>
+        )}
+        {engine.ruler.phase === 'done' && (
+          <span className="slide-in-up rounded-[4px] border border-thermo/40 bg-thermo/10 px-2 py-1 font-mono text-[11px] font-bold text-thermo tabular-nums">
+            ↔ {isMap ? fmtDist(rulerMeters) : `${Math.round(rulerPx)} px`}
+          </span>
+        )}
+
+        {/* масштаб — только для спутниковой карты */}
+        {isMap && (
+          <label
+            className="slide-in-up ml-1 flex items-center gap-1.5 rounded-[4px] border border-line bg-panel2 px-2 py-1 font-mono text-[10px] text-mut"
+            title={`Ширина кадра ≈ ${fmtDist(coverageM)}`}
+          >
+            <span className="tracking-[0.1em]">МАСШТАБ</span>
+            <input
+              type="number"
+              min={0.1}
+              max={25}
+              step={0.1}
+              value={engine.mapScale}
+              onChange={(e) => engine.setMapScale(Number(e.target.value))}
+              className="w-14 rounded-[3px] border border-line bg-abyss px-1.5 py-0.5 text-center font-mono text-[11px] font-bold text-teal outline-none focus:border-teal/60"
+            />
+            <span>м/px</span>
+          </label>
+        )}
+
         <div className="ml-auto flex items-center gap-2 font-mono text-[10px] text-dim">
           {engine.video.active ? (
             <>
@@ -79,17 +178,31 @@ export default function Viewport({ engine }: { engine: Engine }) {
       {/* видеообласть */}
       <div
         ref={wrapRef}
-        className="relative aspect-video touch-none select-none overflow-hidden bg-abyss"
+        className={`relative aspect-video touch-none select-none overflow-hidden bg-abyss ${
+          rulerOn ? 'cursor-crosshair' : ''
+        }`}
         onPointerDown={(e) => {
+          if (rulerOn) {
+            const p = toView(e.clientX, e.clientY);
+            engine.rulerClick(p.x, p.y);
+            return;
+          }
           if (mode !== 'compare') return;
           dragging.current = true;
           setPos(e.clientX);
         }}
         onPointerMove={(e) => {
+          if (rulerOn) {
+            const p = toView(e.clientX, e.clientY);
+            engine.setCursor(p.x, p.y);
+          }
           if (dragging.current) setPos(e.clientX);
         }}
         onPointerUp={() => (dragging.current = false)}
-        onPointerLeave={() => (dragging.current = false)}
+        onPointerLeave={() => {
+          dragging.current = false;
+          engine.setCursor(null, null);
+        }}
       >
         <canvas
           ref={engine.bindRef}
@@ -148,7 +261,21 @@ export default function Viewport({ engine }: { engine: Engine }) {
         <div className="pointer-events-none absolute bottom-3 right-4 font-mono text-[10.5px] text-dim">
           1280×720 · Δ-ПОРОГ {engine.threshold} ·{' '}
           <span className={engine.speed !== 1 ? 'font-bold text-teal' : ''}>×{engine.speed}</span>
+          {isMap && (
+            <>
+              {' '}· <span className="text-teal">{engine.mapScale} м/px</span>
+            </>
+          )}
         </div>
+
+        {/* подсказка линейки */}
+        {rulerOn && engine.ruler.phase !== 'done' && (
+          <div className="pointer-events-none absolute bottom-10 left-1/2 -translate-x-1/2 rounded-[4px] border border-thermo/40 bg-abyss/88 px-3 py-1.5 font-mono text-[10.5px] tracking-[0.08em] text-thermo">
+            {engine.ruler.phase === 'live'
+              ? 'ЛИНЕЙКА · КЛИК — ТОЧКА B · ESC — СБРОС'
+              : 'ЛИНЕЙКА · КЛИКНИТЕ ТОЧКУ A'}
+          </div>
+        )}
 
         {/* баннер тревоги */}
         {showBanner && topDet && (

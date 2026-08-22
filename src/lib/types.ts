@@ -100,6 +100,15 @@ export interface Artifact {
   text?: string;
 }
 
+/** Состояние инструмента «Линейка». */
+export interface RulerState {
+  phase: 'idle' | 'live' | 'done';
+  ax: number;
+  ay: number;
+  bx: number;
+  by: number;
+}
+
 export const KLASS_META: Record<Klass, { color: string; label: string; severity: Severity }> = {
   fire: { color: '#ff5a36', label: 'Возгорание', severity: 'critical' },
   smoke: { color: '#9fb0c4', label: 'Шлейф дыма', severity: 'warn' },

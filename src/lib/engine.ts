@@ -21,6 +21,7 @@ import type {
   JournalEntry,
   LogEvent,
   OverlaySettings,
+  RulerState,
   ScenarioId,
   Severity,
   Snapshot,
@@ -112,6 +113,15 @@ export interface Engine {
   artifact: Artifact | null;
   clearArtifact: () => void;
   toasts: ToastMsg[];
+  // масштаб карты и инструмент «Линейка»
+  mapScale: number;
+  setMapScale: (v: number) => void;
+  rulerActive: boolean;
+  ruler: RulerState;
+  toggleRuler: () => void;
+  resetRuler: () => void;
+  rulerClick: (x: number, y: number) => void;
+  setCursor: (x: number | null, y: number | null) => void;
   bindLive: (el: HTMLCanvasElement | null) => void;
   bindRef: (el: HTMLCanvasElement | null) => void;
   bindHeat: (el: HTMLCanvasElement | null) => void;
@@ -157,6 +167,10 @@ export function useEngine(): Engine {
   // файлы для скачивания + уведомления
   const [artifact, setArtifact] = useState<Artifact | null>(null);
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
+  // масштаб карты (м на пиксель вьюпорта) и инструмент «Линейка»
+  const [mapScale, setMapScaleState] = useState(1.6);
+  const [rulerActive, setRulerActive] = useState(false);
+  const [ruler, setRuler] = useState<RulerState>({ phase: 'idle', ax: 0, ay: 0, bx: 0, by: 0 });
 
   const liveRef = useRef<HTMLCanvasElement | null>(null);
   const refRef = useRef<HTMLCanvasElement | null>(null);
@@ -191,6 +205,13 @@ export function useEngine(): Engine {
   // скорость симуляции: накопленное время + текущий множитель
   const simAccum = useRef(0);
   const speedRef = useRef(1);
+  // линейка (внутри цикла отрисовки)
+  const rulerActiveRef = useRef(false);
+  const rulerRef = useRef<RulerState>({ phase: 'idle', ax: 0, ay: 0, bx: 0, by: 0 });
+  const cursorRef = useRef<{ x: number; y: number } | null>(null);
+  const mapScaleRef = useRef(1.6);
+  rulerRef.current = ruler;
+  mapScaleRef.current = mapScale;
   // водоисточники
   const waterSourcesRef = useRef<WaterSource[]>([]);
 
@@ -325,6 +346,7 @@ export function useEngine(): Engine {
       prevDets.current = [];
       setDetections([]);
       resetPlayback();
+      setRuler({ phase: 'idle', ax: 0, ay: 0, bx: 0, by: 0 });
       if (!uploadedRefImg.current) recomputeRef();
       const cam = CAMERAS.find((c) => c.id === id);
       pushEvent('info', `Переключение на ${cam ? cam.name : id}`);
@@ -516,6 +538,39 @@ export function useEngine(): Engine {
     [pushEvent],
   );
 
+  /* ---------- масштаб карты и инструмент «Линейка» ---------- */
+  const IDLE_RULER: RulerState = { phase: 'idle', ax: 0, ay: 0, bx: 0, by: 0 };
+
+  const setMapScale = useCallback((v: number) => {
+    const clamped = Math.min(25, Math.max(0.1, Number.isFinite(v) ? v : 1.6));
+    mapScaleRef.current = clamped;
+    setMapScaleState(clamped);
+  }, []);
+
+  const resetRuler = useCallback(() => {
+    setRuler(IDLE_RULER);
+    cursorRef.current = null;
+  }, []);
+
+  const toggleRuler = useCallback(() => {
+    const next = !rulerActiveRef.current;
+    rulerActiveRef.current = next;
+    setRulerActive(next);
+    if (!next) setRuler(IDLE_RULER);
+  }, []);
+
+  const rulerClick = useCallback((x: number, y: number) => {
+    setRuler((prev) =>
+      prev.phase === 'live'
+        ? { phase: 'done', ax: prev.ax, ay: prev.ay, bx: x, by: y }
+        : { phase: 'live', ax: x, ay: y, bx: x, by: y },
+    );
+  }, []);
+
+  const setCursor = useCallback((x: number | null, y: number | null) => {
+    cursorRef.current = x == null || y == null ? null : { x, y };
+  }, []);
+
   const resetCustom = useCallback(() => {
     stopVideoInternal();
     uploadedRefImg.current = null;
@@ -656,13 +711,35 @@ export function useEngine(): Engine {
         };
       });
 
+      // Контекстная классификация: если очаг найден, нейтрально-серые пятна
+      // рядом с ним — почти наверняка шлейф дыма, а не «неизвестная аномалия».
+      const fireCtx = dets.filter((d) => d.klass === 'fire');
+      if (fireCtx.length) {
+        dets.forEach((d, i) => {
+          if (d.klass !== 'unknown') return;
+          const b = blobs[i];
+          if (!b) return;
+          const sat = Math.max(b.r, b.g, b.b) - Math.min(b.r, b.g, b.b);
+          const grayish = sat < 52 && Math.abs(b.r - b.b) < 22;
+          if (!grayish) return;
+          const dist = Math.min(
+            ...fireCtx.map((f) => Math.hypot(f.centroid.x - d.centroid.x, f.centroid.y - d.centroid.y)),
+          );
+          if (dist >= 320) return;
+          d.klass = 'smoke';
+          d.label = 'Шлейф дыма';
+          d.severity = KLASS_META.smoke.severity;
+          d.confidence = Math.min(0.92, Math.max(0.42, 0.5 + (52 - sat) / 104 + (1 - dist / 320) * 0.28));
+        });
+      }
+
       // связка «пожар + шлейф дыма»
       const fires = dets.filter((d) => d.klass === 'fire');
       const smokes = dets.filter((d) => d.klass === 'smoke');
       if (fires.length && smokes.length) {
         for (const f of fires) {
           const near = smokes.some(
-            (s) => Math.hypot(s.centroid.x - f.centroid.x, s.centroid.y - f.centroid.y) < 190,
+            (s) => Math.hypot(s.centroid.x - f.centroid.x, s.centroid.y - f.centroid.y) < 240,
           );
           if (near) f.label = 'Пожар со шлейфом дыма';
         }
@@ -924,6 +1001,77 @@ export function useEngine(): Engine {
           });
         }
       }
+
+      /* ---------- инструмент «Линейка» ---------- */
+      if (rulerActiveRef.current) {
+        const r = rulerRef.current;
+        const cur = cursorRef.current;
+        const endX = r.phase === 'live' ? (cur ? cur.x : r.ax) : r.bx;
+        const endY = r.phase === 'live' ? (cur ? cur.y : r.ay) : r.by;
+        const isCam4 = cfg.current.cameraId === 'cam4';
+
+        if (r.phase !== 'idle') {
+          ctx.save();
+          // «бегущий пунктир»
+          ctx.strokeStyle = 'rgba(233,240,248,0.92)';
+          ctx.lineWidth = 1.7;
+          ctx.setLineDash([7, 5]);
+          ctx.lineDashOffset = -((now / 40) % 12);
+          ctx.beginPath();
+          ctx.moveTo(r.ax, r.ay);
+          ctx.lineTo(endX, endY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // концевые маркеры
+          const marks: Array<[number, number]> = [[r.ax, r.ay], [endX, endY]];
+          for (const [px, py] of marks) {
+            ctx.fillStyle = '#0a0e14';
+            ctx.beginPath();
+            ctx.arc(px, py, 5.4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#2fd6c3';
+            ctx.lineWidth = 1.8;
+            ctx.beginPath();
+            ctx.arc(px, py, 5.4, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.fillStyle = '#2fd6c3';
+            ctx.beginPath();
+            ctx.arc(px, py, 1.8, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          // подпись расстояния у середины отрезка
+          const distPx = Math.hypot(endX - r.ax, endY - r.ay);
+          if (distPx > 6) {
+            const label = isCam4
+              ? (() => {
+                  const m = distPx * mapScaleRef.current;
+                  return m >= 1000
+                    ? `${(m / 1000).toFixed(2).replace('.', ',')} км`
+                    : `${Math.round(m)} м`;
+                })()
+              : `${Math.round(distPx)} px`;
+            const mx = (r.ax + endX) / 2;
+            const my = (r.ay + endY) / 2;
+            ctx.font = '700 12px "JetBrains Mono", monospace';
+            const tw = ctx.measureText(label).width;
+            const bw = tw + 16;
+            const bx = Math.min(VIEW_W - bw - 4, Math.max(4, mx - bw / 2));
+            const by = my - 26 < 4 ? my + 10 : my - 26;
+            ctx.fillStyle = 'rgba(7,10,15,0.9)';
+            ctx.fillRect(bx, by, bw, 19);
+            ctx.strokeStyle = 'rgba(47,214,195,0.55)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(bx, by, bw, 19);
+            ctx.fillStyle = '#2fd6c3';
+            ctx.textAlign = 'center';
+            ctx.fillText(label, bx + bw / 2, by + 13);
+            ctx.textAlign = 'left';
+          }
+          ctx.restore();
+        }
+      }
     };
 
     const tick = (now: number) => {
@@ -1106,6 +1254,14 @@ export function useEngine(): Engine {
     artifact,
     clearArtifact,
     toasts,
+    mapScale,
+    setMapScale,
+    rulerActive,
+    ruler,
+    toggleRuler,
+    resetRuler,
+    rulerClick,
+    setCursor,
     bindLive,
     bindRef,
     bindHeat,

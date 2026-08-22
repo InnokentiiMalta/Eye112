@@ -204,10 +204,11 @@ export function classifyBlob(b: Blob): ClassifyResult {
   }
 
   // Дым: нейтральный серый, без выраженного цветового сдвига
-  if (sat < 40 && Math.abs(cr - cb) < 15 && lum > 92 && lum < 224) {
+  // (порог яркости снижен — на тёмных картах дым темнее, чем на фото)
+  if (sat < 44 && Math.abs(cr - cb) < 17 && lum > 68 && lum < 232) {
     return {
       klass: 'smoke',
-      confidence: clamp01(0.46 + (40 - sat) / 90 + Math.min(b.area / 2600, 0.2)),
+      confidence: clamp01(0.46 + (44 - sat) / 99 + Math.min(b.area / 2600, 0.2)),
     };
   }
 
