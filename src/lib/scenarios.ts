@@ -225,6 +225,32 @@ function drawCollapse(
   ctx.ellipse(cx, cy - 26, 92, 66, 0, 0, Math.PI * 2);
   ctx.fill();
 
+  // зона смещения грунта у подошвы завала (контекст для верификатора:
+  // обрушение сопровождается движением почвы — свежий вскрышной грунт).
+  // Размещена отдельным пятном, чтобы не сливаться с завалом в один сегмент.
+  const gr = mulberry32(5150);
+  ctx.fillStyle = 'rgba(150,104,58,0.92)';
+  ctx.beginPath();
+  ctx.ellipse(cx + 152, cy + 54, 62, 26, -0.14, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(122,84,52,0.85)';
+  ctx.beginPath();
+  ctx.ellipse(cx + 104, cy + 64, 36, 16, 0.22, 0, Math.PI * 2);
+  ctx.fill();
+  // глыбы и борозды смещённого грунта
+  for (let i = 0; i < 12; i++) {
+    const gx = cx + 88 + gr() * 124;
+    const gy = cy + 40 + gr() * 38;
+    const gs = 3 + gr() * 5;
+    ctx.fillStyle = `rgba(${104 + gr() * 42},${74 + gr() * 26},${48 + gr() * 18},0.9)`;
+    ctx.beginPath();
+    ctx.moveTo(gx - gs, gy);
+    ctx.lineTo(gx, gy - gs);
+    ctx.lineTo(gx + gs, gy + gs * 0.4);
+    ctx.closePath();
+    ctx.fill();
+  }
+
   // обломки
   for (let i = 0; i < 30; i++) {
     const a = rnd() * Math.PI * 2;

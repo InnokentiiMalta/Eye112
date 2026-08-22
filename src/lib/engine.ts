@@ -215,6 +215,9 @@ export function useEngine(): Engine {
   // скорость симуляции: накопленное время + текущий множитель
   const simAccum = useRef(0);
   const speedRef = useRef(1);
+  // память очагов пожара: позиции, где детектировался огонь
+  // (нужна для выявления зон выгорания после ликвидации)
+  const fireHistoryRef = useRef<Array<{ x: number; y: number; ts: number }>>([]);
   // линейка (внутри цикла отрисовки)
   const rulerActiveRef = useRef(false);
   const rulerRef = useRef<RulerState>({ phase: 'idle', ax: 0, ay: 0, bx: 0, by: 0 });
@@ -360,6 +363,7 @@ export function useEngine(): Engine {
       prevDets.current = [];
       setDetections([]);
       resetPlayback();
+      fireHistoryRef.current = [];
       setRuler({ phase: 'idle', ax: 0, ay: 0, bx: 0, by: 0 });
       calibActiveRef.current = false;
       setCalibActive(false);
@@ -383,6 +387,7 @@ export function useEngine(): Engine {
       prevDets.current = [];
       setDetections([]);
       resetPlayback();
+      fireHistoryRef.current = [];
       if (s === 'calm') {
         pushEvent('info', 'Возврат к штатному режиму наблюдения');
       } else {
@@ -497,6 +502,7 @@ export function useEngine(): Engine {
       prevDets.current = [];
       setDetections([]);
       resetPlayback();
+      fireHistoryRef.current = [];
       videoPlayingRef.current = true;
       setVideo({ active: true, playing: true, name: file.name, duration: 0, currentTime: 0 });
       pushEvent('info', `Видео загружено: ${file.name} · сравнение с эталоном в реальном времени`);
@@ -665,6 +671,7 @@ export function useEngine(): Engine {
     prevDets.current = [];
     setDetections([]);
     resetPlayback();
+    fireHistoryRef.current = [];
     recomputeRef();
     pushEvent('info', 'Возврат к демонстрационным сценам');
   }, [pushEvent, recomputeRef, resetPlayback, stopVideoInternal]);
@@ -744,7 +751,7 @@ export function useEngine(): Engine {
         if (d >= th) mask[i] = 1;
       }
 
-      const all = extractBlobs(mask, cur, diffBuf);
+      const all = extractBlobs(mask, cur, ref, diffBuf);
       const blobs = all.filter((b) => b.area >= c.minArea);
       const scale = VIEW_W / AW;
 
@@ -796,25 +803,99 @@ export function useEngine(): Engine {
 
       // Контекстная классификация: если очаг найден, нейтрально-серые пятна
       // рядом с ним — почти наверняка шлейф дыма, а не «неизвестная аномалия».
-      const fireCtx = dets.filter((d) => d.klass === 'fire');
-      if (fireCtx.length) {
-        dets.forEach((d, i) => {
-          if (d.klass !== 'unknown') return;
-          const b = blobs[i];
-          if (!b) return;
-          const sat = Math.max(b.r, b.g, b.b) - Math.min(b.r, b.g, b.b);
-          const grayish = sat < 52 && Math.abs(b.r - b.b) < 22;
-          if (!grayish) return;
-          const dist = Math.min(
-            ...fireCtx.map((f) => Math.hypot(f.centroid.x - d.centroid.x, f.centroid.y - d.centroid.y)),
-          );
-          if (dist >= 320) return;
+      // ---------- Контекстный верификатор «разрушений» и серых аномалий ----------
+      // Разрушение конструкций подтверждается только при наличии опорного контекста:
+      //  · зона движения почвы (terrain) поблизости,
+      //  · зона фактического затопления (flood) поблизости,
+      //  · непосредственная близость к очагу пожара,
+      //  · потемнение на месте исторического очага (зона выгорания после ликвидации).
+      // Без контекста — «Неклассифицированная аномалия».
+      const ctxFires = dets.filter((d) => d.klass === 'fire');
+      const ctxFloods = dets.filter((d) => d.klass === 'flood');
+      const ctxTerrains = dets.filter((d) => d.klass === 'terrain');
+      const nowTs = performance.now();
+
+      // запоминаем позиции очагов — пригодится для детекции зон выгорания
+      for (const f of ctxFires) {
+        const hist = fireHistoryRef.current;
+        const ex = hist.find(
+          (p) => Math.hypot(p.x - f.centroid.x, p.y - f.centroid.y) < 70,
+        );
+        if (ex) ex.ts = nowTs;
+        else hist.push({ x: f.centroid.x, y: f.centroid.y, ts: nowTs });
+        if (hist.length > 24) hist.shift();
+      }
+
+      dets.forEach((d, i) => {
+        if (d.klass !== 'collapse' && d.klass !== 'unknown') return;
+        const b = blobs[i];
+        if (!b) return;
+        const sat = Math.max(b.r, b.g, b.b) - Math.min(b.r, b.g, b.b);
+        const grayish = sat < 52 && Math.abs(b.r - b.b) < 22;
+        const distTo = (arr: Detection[]) =>
+          arr.length
+            ? Math.min(
+                ...arr.map((o) =>
+                  Math.hypot(o.centroid.x - d.centroid.x, o.centroid.y - d.centroid.y),
+                ),
+              )
+            : Infinity;
+        const dFire = distTo(ctxFires);
+        const dFlood = distTo(ctxFloods);
+        const dTerrain = distTo(ctxTerrains);
+        const hist = fireHistoryRef.current.find(
+          (p) => Math.hypot(p.x - d.centroid.x, p.y - d.centroid.y) < 160,
+        );
+        const darkened = b.lumDiff < -25; // ощутимо темнее эталона
+
+        // 1) серое у самого очага — плотный дым, а не разрушение
+        if (grayish && dFire < 260) {
           d.klass = 'smoke';
           d.label = 'Шлейф дыма';
           d.severity = KLASS_META.smoke.severity;
-          d.confidence = Math.min(0.92, Math.max(0.42, 0.5 + (52 - sat) / 104 + (1 - dist / 320) * 0.28));
-        });
-      }
+          d.confidence = Math.min(
+            0.9,
+            Math.max(0.44, 0.5 + (1 - dFire / 260) * 0.3 + (52 - sat) / 130),
+          );
+          return;
+        }
+
+        // 2) потемнение на месте, где раньше горело, — зона выгорания
+        if (hist && darkened) {
+          d.klass = 'collapse';
+          d.label = 'Разрушение · зона выгорания';
+          d.severity = KLASS_META.collapse.severity;
+          d.confidence = Math.min(0.88, 0.55 + Math.min(-b.lumDiff / 120, 0.25));
+          return;
+        }
+
+        // 3) гипотеза «разрушение» требует опорного контекста
+        if (d.klass === 'collapse') {
+          if (dFire < 150) {
+            d.label = 'Разрушение · зона пожара';
+            d.confidence = Math.min(0.85, 0.5 + (1 - dFire / 150) * 0.25);
+            return;
+          }
+          if (dFlood < 200) {
+            d.label = 'Разрушение · зона затопления';
+            d.confidence = Math.min(0.85, 0.5 + (1 - dFlood / 200) * 0.25);
+            return;
+          }
+          if (dTerrain < 220) {
+            d.label = 'Разрушение · зона движения почвы';
+            d.confidence = Math.min(0.85, 0.5 + (1 - dTerrain / 220) * 0.25);
+            return;
+          }
+          // контекста нет — лучше честно «не классифицировано»
+          d.klass = 'unknown';
+          d.label = 'Неклассифицированная аномалия';
+          d.severity = KLASS_META.unknown.severity;
+          d.confidence = Math.min(d.confidence, 0.42);
+        } else if (grayish) {
+          // серое вдали от всего — не изобретаем класс
+          d.confidence = Math.min(d.confidence, 0.4);
+        }
+      });
 
       // связка «пожар + шлейф дыма»
       const fires = dets.filter((d) => d.klass === 'fire');

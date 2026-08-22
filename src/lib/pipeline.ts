@@ -24,6 +24,8 @@ export interface Blob {
   g: number;
   b: number;
   meanDiff: number;
+  /** Знаковая разность яркости с эталоном: < 0 — темнее эталона (выгорание), > 0 — светлее. */
+  lumDiff: number;
   peak: number;
   peakX: number;
   peakY: number;
@@ -95,6 +97,7 @@ const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 export function extractBlobs(
   mask: Uint8Array,
   frame: Uint8ClampedArray,
+  ref: Uint8ClampedArray,
   diff: Uint8Array,
 ): Blob[] {
   const N = AW * AH;
@@ -111,6 +114,7 @@ export function extractBlobs(
     let area = 0;
     let minX = AW, minY = AH, maxX = -1, maxY = -1;
     let sx = 0, sy = 0, sr = 0, sg = 0, sb = 0, sd = 0;
+    let slum = 0; // накопление знаковой разности яркости с эталоном
     let peak = -1, peakX = 0, peakY = 0;
     const members: number[] = [];
 
@@ -132,6 +136,8 @@ export function extractBlobs(
       const d = diff[i];
       sd += d;
       const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      const refLum = 0.299 * ref[j] + 0.587 * ref[j + 1] + 0.114 * ref[j + 2];
+      slum += lum - refLum;
       if (lum > peak) { peak = lum; peakX = x; peakY = y; }
 
       for (let dy = -1; dy <= 1; dy++) {
@@ -162,6 +168,7 @@ export function extractBlobs(
       g: sg / area,
       b: sb / area,
       meanDiff: sd / area,
+      lumDiff: slum / area,
       peak,
       peakX,
       peakY,
@@ -212,11 +219,13 @@ export function classifyBlob(b: Blob): ClassifyResult {
     };
   }
 
-  // Разрушение: тёплый серый (бетон/пыль), умеренная насыщенность
-  if (sat < 66 && cr - cb > 5 && cr - cb < 56 && lum > 92 && lum < 212) {
+  // Разрушение: тёплый серый (бетон/пыль), умеренная насыщенность.
+  // Спектр здесь — лишь предварительная гипотеза: окончательное решение
+  // принимает контекстный верификатор в движке (зона почвы/воды/огня/выгорания).
+  if (sat < 60 && cr - cb > 3 && cr - cb < 52 && lum > 94 && lum < 214) {
     return {
       klass: 'collapse',
-      confidence: clamp01(0.5 + Math.min(b.meanDiff / 320, 0.22) + Math.min(b.area / 2400, 0.16)),
+      confidence: clamp01(0.42 + Math.min(b.meanDiff / 320, 0.18) + Math.min(b.area / 2400, 0.12)),
     };
   }
 
