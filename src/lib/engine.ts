@@ -16,6 +16,7 @@ import { SCENARIOS, drawScenario } from './scenarios';
 import { composeDashboard } from './screenshot';
 import type {
   Artifact,
+  CalibState,
   Detection,
   EngineStats,
   JournalEntry,
@@ -113,16 +114,22 @@ export interface Engine {
   artifact: Artifact | null;
   clearArtifact: () => void;
   toasts: ToastMsg[];
-  // масштаб карты и инструмент «Линейка»
-  mapScale: number;
-  setMapScale: (v: number) => void;
-  rulerActive: boolean;
-  ruler: RulerState;
-  toggleRuler: () => void;
-  resetRuler: () => void;
-  rulerClick: (x: number, y: number) => void;
-  setCursor: (x: number | null, y: number | null) => void;
-  bindLive: (el: HTMLCanvasElement | null) => void;
+    // масштаб карты и инструмент «Линейка»
+    mapScale: number;
+    setMapScale: (v: number) => void;
+    rulerActive: boolean;
+    ruler: RulerState;
+    toggleRuler: () => void;
+    resetRuler: () => void;
+    rulerClick: (x: number, y: number) => void;
+    setCursor: (x: number | null, y: number | null) => void;
+    // калибровка масштаба эталонным отрезком
+    calibActive: boolean;
+    calib: CalibState;
+    toggleCalib: () => void;
+    resetCalib: () => void;
+    calibClick: (x: number, y: number) => void;
+    setCalibLength: (meters: number) => void;  bindLive: (el: HTMLCanvasElement | null) => void;
   bindRef: (el: HTMLCanvasElement | null) => void;
   bindHeat: (el: HTMLCanvasElement | null) => void;
   bindOverlay: (el: HTMLCanvasElement | null) => void;
@@ -171,6 +178,9 @@ export function useEngine(): Engine {
   const [mapScale, setMapScaleState] = useState(1.6);
   const [rulerActive, setRulerActive] = useState(false);
   const [ruler, setRuler] = useState<RulerState>({ phase: 'idle', ax: 0, ay: 0, bx: 0, by: 0 });
+  // калибровка масштаба эталонным отрезком
+  const [calibActive, setCalibActive] = useState(false);
+  const [calib, setCalib] = useState<CalibState>({ phase: 'idle', ax: 0, ay: 0, bx: 0, by: 0 });
 
   const liveRef = useRef<HTMLCanvasElement | null>(null);
   const refRef = useRef<HTMLCanvasElement | null>(null);
@@ -212,6 +222,10 @@ export function useEngine(): Engine {
   const mapScaleRef = useRef(1.6);
   rulerRef.current = ruler;
   mapScaleRef.current = mapScale;
+  // калибровка масштаба (внутри цикла отрисовки)
+  const calibActiveRef = useRef(false);
+  const calibRef = useRef<CalibState>({ phase: 'idle', ax: 0, ay: 0, bx: 0, by: 0 });
+  calibRef.current = calib;
   // водоисточники
   const waterSourcesRef = useRef<WaterSource[]>([]);
 
@@ -347,6 +361,9 @@ export function useEngine(): Engine {
       setDetections([]);
       resetPlayback();
       setRuler({ phase: 'idle', ax: 0, ay: 0, bx: 0, by: 0 });
+      calibActiveRef.current = false;
+      setCalibActive(false);
+      setCalib({ phase: 'idle', ax: 0, ay: 0, bx: 0, by: 0 });
       if (!uploadedRefImg.current) recomputeRef();
       const cam = CAMERAS.find((c) => c.id === id);
       pushEvent('info', `Переключение на ${cam ? cam.name : id}`);
@@ -556,7 +573,14 @@ export function useEngine(): Engine {
     const next = !rulerActiveRef.current;
     rulerActiveRef.current = next;
     setRulerActive(next);
-    if (!next) setRuler(IDLE_RULER);
+    if (!next) {
+      setRuler(IDLE_RULER);
+    } else {
+      // линейка и калибровка взаимоисключаемы
+      calibActiveRef.current = false;
+      setCalibActive(false);
+      setCalib({ phase: 'idle', ax: 0, ay: 0, bx: 0, by: 0 });
+    }
   }, []);
 
   const rulerClick = useCallback((x: number, y: number) => {
@@ -570,6 +594,65 @@ export function useEngine(): Engine {
   const setCursor = useCallback((x: number | null, y: number | null) => {
     cursorRef.current = x == null || y == null ? null : { x, y };
   }, []);
+
+  /* ---------- калибровка масштаба эталонным отрезком ---------- */
+  const IDLE_CALIB: CalibState = { phase: 'idle', ax: 0, ay: 0, bx: 0, by: 0 };
+
+  const toggleCalib = useCallback(() => {
+    const next = !calibActiveRef.current;
+    calibActiveRef.current = next;
+    setCalibActive(next);
+    if (!next) {
+      setCalib(IDLE_CALIB);
+      cursorRef.current = null;
+    } else {
+      // линейка и калибровка используют одни и те же указательные события — взаимоисключаем
+      rulerActiveRef.current = false;
+      setRulerActive(false);
+      setRuler(IDLE_RULER);
+    }
+  }, []);
+
+  const resetCalib = useCallback(() => {
+    setCalib(IDLE_CALIB);
+    cursorRef.current = null;
+  }, []);
+
+  const calibClick = useCallback((x: number, y: number) => {
+    setCalib((prev) =>
+      prev.phase === 'live'
+        ? { phase: 'done', ax: prev.ax, ay: prev.ay, bx: x, by: y }
+        : { phase: 'live', ax: x, ay: y, bx: x, by: y },
+    );
+  }, []);
+
+  /**
+   * Применяет эталонный замер: пользователь указывает реальную длину отрезка
+   * в метрах, масштаб карты = длина / длина в пикселях.
+   */
+  const setCalibLength = useCallback(
+    (meters: number) => {
+      const c = calibRef.current;
+      if (c.phase !== 'done') return;
+      const distPx = Math.hypot(c.bx - c.ax, c.by - c.ay);
+      if (!(meters > 0) || distPx < 4) {
+        pushToast('err', 'Слишком короткий отрезок — отметьте точки дальше друг от друга');
+        return;
+      }
+      const scale = meters / distPx;
+      setMapScale(scale);
+      calibActiveRef.current = false;
+      setCalibActive(false);
+      setCalib(IDLE_CALIB);
+      cursorRef.current = null;
+      pushEvent(
+        'info',
+        `Масштаб откалиброван: ${Math.round(distPx)} px = ${meters} м → ${(scale).toFixed(2)} м/px`,
+      );
+      pushToast('ok', `Масштаб задан: ${scale.toFixed(2)} м/px`);
+    },
+    [pushEvent, pushToast, setMapScale],
+  );
 
   const resetCustom = useCallback(() => {
     stopVideoInternal();
@@ -1072,6 +1155,71 @@ export function useEngine(): Engine {
           ctx.restore();
         }
       }
+
+      /* ---------- калибровка масштаба эталонным отрезком ---------- */
+      if (calibActiveRef.current) {
+        const c = calibRef.current;
+        const cur = cursorRef.current;
+        const endX = c.phase === 'live' ? (cur ? cur.x : c.ax) : c.bx;
+        const endY = c.phase === 'live' ? (cur ? cur.y : c.ay) : c.by;
+
+        if (c.phase !== 'idle') {
+          ctx.save();
+          ctx.strokeStyle = 'rgba(90,162,240,0.95)';
+          ctx.lineWidth = 1.8;
+          ctx.setLineDash([7, 5]);
+          ctx.lineDashOffset = -((now / 40) % 12);
+          ctx.beginPath();
+          ctx.moveTo(c.ax, c.ay);
+          ctx.lineTo(endX, endY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // концевые маркеры
+          const marks: Array<[number, number]> = [[c.ax, c.ay], [endX, endY]];
+          for (const [px, py] of marks) {
+            ctx.fillStyle = '#0a0e14';
+            ctx.beginPath();
+            ctx.arc(px, py, 5.4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#5aa2f0';
+            ctx.lineWidth = 1.8;
+            ctx.beginPath();
+            ctx.arc(px, py, 5.4, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.fillStyle = '#5aa2f0';
+            ctx.beginPath();
+            ctx.arc(px, py, 1.8, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          // подпись: длина в пикселях + приглашение задать реальную длину
+          const distPx = Math.hypot(endX - c.ax, endY - c.ay);
+          if (distPx > 6) {
+            const label =
+              c.phase === 'done'
+                ? `ОТРЕЗОК ${Math.round(distPx)} px · ЗАДАЙТЕ ДЛИНУ, м`
+                : `${Math.round(distPx)} px`;
+            const mx = (c.ax + endX) / 2;
+            const my = (c.ay + endY) / 2;
+            ctx.font = '700 12px "JetBrains Mono", monospace';
+            const tw = ctx.measureText(label).width;
+            const bw = tw + 16;
+            const bx = Math.min(VIEW_W - bw - 4, Math.max(4, mx - bw / 2));
+            const by = my - 26 < 4 ? my + 10 : my - 26;
+            ctx.fillStyle = 'rgba(7,10,15,0.9)';
+            ctx.fillRect(bx, by, bw, 19);
+            ctx.strokeStyle = 'rgba(90,162,240,0.6)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(bx, by, bw, 19);
+            ctx.fillStyle = '#5aa2f0';
+            ctx.textAlign = 'center';
+            ctx.fillText(label, bx + bw / 2, by + 13);
+            ctx.textAlign = 'left';
+          }
+          ctx.restore();
+        }
+      }
     };
 
     const tick = (now: number) => {
@@ -1262,6 +1410,12 @@ export function useEngine(): Engine {
     resetRuler,
     rulerClick,
     setCursor,
+    calibActive,
+    calib,
+    toggleCalib,
+    resetCalib,
+    calibClick,
+    setCalibLength,
     bindLive,
     bindRef,
     bindHeat,

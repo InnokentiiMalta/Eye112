@@ -112,6 +112,16 @@ export const IconRuler = ({ className }: IconProps) => (
   </svg>
 );
 
+export const IconScale = ({ className }: IconProps) => (
+  <svg {...base(className)}>
+    <path d="M4 9h16" />
+    <path d="M8 6 4 9l4 3" />
+    <path d="M16 6l4 3-4 3" />
+    <path d="M12 4v10" />
+    <path d="M9 17.5h6" />
+  </svg>
+);
+
 export const IconDownload = ({ className }: IconProps) => (
   <svg {...base(className)}>
     <path d="M12 3v11" />

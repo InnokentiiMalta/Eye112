@@ -13,6 +13,7 @@ import {
   IconRadar,
   IconReset,
   IconRuler,
+  IconScale,
 } from './icons';
 
 const MODES: Array<{ id: ViewMode; label: string; Icon: (p: { className?: string }) => React.ReactElement }> = [
@@ -44,17 +45,26 @@ export default function Viewport({ engine }: { engine: Engine }) {
   const mode = engine.viewMode;
   const isMap = engine.cameraId === 'cam4';
   const rulerOn = engine.rulerActive && mode !== 'compare' && mode !== 'reference';
-
-  // Esc — сброс замера
+  const calibOn = engine.calibActive && mode !== 'compare' && mode !== 'reference';
+  // длина эталонного отрезка в метрах (ввод пользователя)
+  const [calibLen, setCalibLen] = useState('');
+  // при новом замере очищаем поле ввода
   useEffect(() => {
-    if (!engine.rulerActive) return;
+    if (engine.calib.phase !== 'done') setCalibLen('');
+  }, [engine.calib.phase]);
+
+  // Esc — сброс замера / калибровки
+  useEffect(() => {
+    if (!engine.rulerActive && !engine.calibActive) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') engine.resetRuler();
+      if (e.key !== 'Escape') return;
+      if (engine.rulerActive) engine.resetRuler();
+      if (engine.calibActive) engine.resetCalib();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engine.rulerActive]);
+  }, [engine.rulerActive, engine.calibActive]);
 
   const toView = (clientX: number, clientY: number) => {
     const el = wrapRef.current;
@@ -88,7 +98,18 @@ export default function Viewport({ engine }: { engine: Engine }) {
       ? Math.hypot(engine.ruler.bx - engine.ruler.ax, engine.ruler.by - engine.ruler.ay)
       : 0;
 
+  // длина эталонного отрезка в пикселях (для формы калибровки)
+  const calibDistPx =
+    engine.calib.phase === 'done'
+      ? Math.hypot(engine.calib.bx - engine.calib.ax, engine.calib.by - engine.calib.ay)
+      : 0;
+
   const coverageM = VIEW_W * engine.mapScale;
+
+  const applyCalib = () => {
+    const m = parseFloat(calibLen.replace(',', '.'));
+    if (Number.isFinite(m) && m > 0) engine.setCalibLength(m);
+  };
 
   const corner = 'pointer-events-none absolute h-5 w-5 border-teal/50';
 
@@ -139,24 +160,76 @@ export default function Viewport({ engine }: { engine: Engine }) {
           </span>
         )}
 
-        {/* масштаб — только для спутниковой карты */}
+        {/* калибровка масштаба — только для спутниковой карты */}
         {isMap && (
-          <label
-            className="slide-in-up ml-1 flex items-center gap-1.5 rounded-[4px] border border-line bg-panel2 px-2 py-1 font-mono text-[10px] text-mut"
-            title={`Ширина кадра ≈ ${fmtDist(coverageM)}`}
-          >
-            <span className="tracking-[0.1em]">МАСШТАБ</span>
-            <input
-              type="number"
-              min={0.1}
-              max={25}
-              step={0.1}
-              value={engine.mapScale}
-              onChange={(e) => engine.setMapScale(Number(e.target.value))}
-              className="w-14 rounded-[3px] border border-line bg-abyss px-1.5 py-0.5 text-center font-mono text-[11px] font-bold text-teal outline-none focus:border-teal/60"
-            />
-            <span>м/px</span>
-          </label>
+          <>
+            <button
+              onClick={engine.toggleCalib}
+              title="Задать масштаб: отметьте эталонный отрезок и укажите его длину в метрах"
+              className={`flex items-center gap-1.5 rounded-[4px] px-2.5 py-1.5 text-[11.5px] font-semibold transition-colors ${
+                engine.calibActive
+                  ? 'bg-infoc/15 text-infoc shadow-[inset_0_0_0_1px_rgba(90,162,240,0.45)]'
+                  : 'text-mut hover:bg-panel3 hover:text-fg'
+              }`}
+            >
+              <IconScale className="h-3.5 w-3.5" /> Задать масштаб
+            </button>
+            {engine.calibActive && engine.calib.phase !== 'done' && (
+              <button
+                onClick={engine.resetCalib}
+                title="Сбросить отрезок"
+                className="slide-in-up flex items-center gap-1 rounded-[4px] px-2 py-1.5 text-[11px] font-semibold text-mut transition-colors hover:bg-panel3 hover:text-crit"
+              >
+                <IconReset className="h-3.5 w-3.5" /> Сброс
+              </button>
+            )}
+
+            {/* форма ввода длины эталонного отрезка */}
+            {engine.calib.phase === 'done' && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  applyCalib();
+                }}
+                className="slide-in-up flex items-center gap-1.5 rounded-[4px] border border-infoc/40 bg-infoc/10 px-2 py-1"
+              >
+                <span className="font-mono text-[10px] text-infoc">
+                  {Math.round(calibDistPx)} px =
+                </span>
+                <input
+                  autoFocus
+                  type="text"
+                  inputMode="decimal"
+                  value={calibLen}
+                  onChange={(e) => setCalibLen(e.target.value)}
+                  placeholder="м"
+                  className="w-14 rounded-[3px] border border-line bg-abyss px-1.5 py-0.5 text-center font-mono text-[11px] font-bold text-fg outline-none focus:border-infoc/70"
+                />
+                <button
+                  type="submit"
+                  className="rounded-[3px] bg-infoc px-2 py-0.5 font-mono text-[10.5px] font-bold text-abyss transition-transform hover:scale-105"
+                >
+                  OK
+                </button>
+                <button
+                  type="button"
+                  onClick={engine.resetCalib}
+                  title="Отметить отрезок заново"
+                  className="rounded-[3px] px-1.5 py-0.5 font-mono text-[10.5px] font-semibold text-mut transition-colors hover:text-crit"
+                >
+                  Заново
+                </button>
+              </form>
+            )}
+
+            {/* текущий масштаб (только чтение) */}
+            <span
+              className="rounded-[4px] border border-line bg-panel2 px-2 py-1 font-mono text-[10px] text-mut"
+              title={`Ширина кадра ≈ ${fmtDist(coverageM)}`}
+            >
+              МАСШТАБ <span className="font-bold text-teal">{engine.mapScale.toFixed(2)} м/px</span>
+            </span>
+          </>
         )}
 
         <div className="ml-auto flex items-center gap-2 font-mono text-[10px] text-dim">
@@ -179,7 +252,7 @@ export default function Viewport({ engine }: { engine: Engine }) {
       <div
         ref={wrapRef}
         className={`relative aspect-video touch-none select-none overflow-hidden bg-abyss ${
-          rulerOn ? 'cursor-crosshair' : ''
+          rulerOn || calibOn ? 'cursor-crosshair' : ''
         }`}
         onPointerDown={(e) => {
           if (rulerOn) {
@@ -187,12 +260,17 @@ export default function Viewport({ engine }: { engine: Engine }) {
             engine.rulerClick(p.x, p.y);
             return;
           }
+          if (calibOn) {
+            const p = toView(e.clientX, e.clientY);
+            engine.calibClick(p.x, p.y);
+            return;
+          }
           if (mode !== 'compare') return;
           dragging.current = true;
           setPos(e.clientX);
         }}
         onPointerMove={(e) => {
-          if (rulerOn) {
+          if (rulerOn || calibOn) {
             const p = toView(e.clientX, e.clientY);
             engine.setCursor(p.x, p.y);
           }
@@ -263,7 +341,7 @@ export default function Viewport({ engine }: { engine: Engine }) {
           <span className={engine.speed !== 1 ? 'font-bold text-teal' : ''}>×{engine.speed}</span>
           {isMap && (
             <>
-              {' '}· <span className="text-teal">{engine.mapScale} м/px</span>
+              {' '}· <span className="text-teal">{engine.mapScale.toFixed(2)} м/px</span>
             </>
           )}
         </div>
@@ -274,6 +352,15 @@ export default function Viewport({ engine }: { engine: Engine }) {
             {engine.ruler.phase === 'live'
               ? 'ЛИНЕЙКА · КЛИК — ТОЧКА B · ESC — СБРОС'
               : 'ЛИНЕЙКА · КЛИКНИТЕ ТОЧКУ A'}
+          </div>
+        )}
+
+        {/* подсказка калибровки масштаба */}
+        {calibOn && engine.calib.phase !== 'done' && (
+          <div className="pointer-events-none absolute bottom-10 left-1/2 -translate-x-1/2 rounded-[4px] border border-infoc/40 bg-abyss/88 px-3 py-1.5 font-mono text-[10.5px] tracking-[0.08em] text-infoc">
+            {engine.calib.phase === 'live'
+              ? 'МАСШТАБ · КЛИК — КОНЕЦ ОТРЕЗКА · ESC — СБРОС'
+              : 'МАСШТАБ · ОТМЕТЬТЕ НАЧАЛО ЭТАЛОННОГО ОТРЕЗКА'}
           </div>
         )}
 
