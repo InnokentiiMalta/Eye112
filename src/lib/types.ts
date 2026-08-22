@@ -100,6 +100,28 @@ export interface Artifact {
   text?: string;
 }
 
+/* ---------- внешние каналы видеопотока ---------- */
+
+export type ChannelType = 'webcam' | 'stream' | 'folder';
+export type StreamKind = 'mjpeg' | 'hls' | 'ws';
+
+export interface ChannelInfo {
+  active: boolean;
+  type: ChannelType;
+  /** человекочитаемое имя: URL потока, имя камеры или имя папки */
+  label: string;
+  status: string;
+  kind?: StreamKind;
+}
+
+export interface FolderInfo {
+  connected: boolean;
+  fileCount: number;
+  latestName: string;
+  latestTime: string;
+  pollSec: number;
+}
+
 /** Состояние инструмента «Линейка». */
 export interface RulerState {
   phase: 'idle' | 'live' | 'done';

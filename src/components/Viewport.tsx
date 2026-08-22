@@ -233,7 +233,13 @@ export default function Viewport({ engine }: { engine: Engine }) {
         )}
 
         <div className="ml-auto flex items-center gap-2 font-mono text-[10px] text-dim">
-          {engine.video.active ? (
+          {engine.channel.active ? (
+            <>
+              <span className="h-2 w-2 rounded-full bg-teal led-blink" />
+              <span className="font-bold tracking-widest text-teal">КАНАЛ</span>
+              <span className="max-w-[160px] truncate text-fg">{engine.channel.label}</span>
+            </>
+          ) : engine.video.active ? (
             <>
               <span className="h-2 w-2 rounded-full bg-crit led-blink" />
               <span className="font-bold tracking-widest text-crit">ВИДЕО</span>

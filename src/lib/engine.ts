@@ -17,8 +17,10 @@ import { composeDashboard } from './screenshot';
 import type {
   Artifact,
   CalibState,
+  ChannelInfo,
   Detection,
   EngineStats,
+  FolderInfo,
   JournalEntry,
   LogEvent,
   OverlaySettings,
@@ -26,6 +28,7 @@ import type {
   ScenarioId,
   Severity,
   Snapshot,
+  StreamKind,
   SystemStatus,
   ToastMsg,
   VideoState,
@@ -114,6 +117,13 @@ export interface Engine {
   artifact: Artifact | null;
   clearArtifact: () => void;
   toasts: ToastMsg[];
+  // внешние каналы видеопотока
+  channel: ChannelInfo;
+  folderInfo: FolderInfo;
+  connectWebcam: (deviceId: string, label: string) => Promise<void>;
+  connectStream: (kind: StreamKind, url: string) => Promise<void>;
+  connectFolder: (pollSec: number) => Promise<void>;
+  disconnectChannel: () => void;
     // масштаб карты и инструмент «Линейка»
     mapScale: number;
     setMapScale: (v: number) => void;
@@ -174,6 +184,15 @@ export function useEngine(): Engine {
   // файлы для скачивания + уведомления
   const [artifact, setArtifact] = useState<Artifact | null>(null);
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
+  // внешние каналы видеопотока (сетевой поток / локальная камера / папка скриншотов)
+  const [channel, setChannel] = useState<ChannelInfo>({ active: false, type: 'webcam', label: '', status: '' });
+  const [folderInfo, setFolderInfo] = useState<FolderInfo>({
+    connected: false,
+    fileCount: 0,
+    latestName: '',
+    latestTime: '',
+    pollSec: 5,
+  });
   // масштаб карты (м на пиксель вьюпорта) и инструмент «Линейка»
   const [mapScale, setMapScaleState] = useState(1.6);
   const [rulerActive, setRulerActive] = useState(false);
@@ -660,6 +679,269 @@ export function useEngine(): Engine {
     [pushEvent, pushToast, setMapScale],
   );
 
+  /* ================================================================
+     ВНЕШНИЕ КАНАЛЫ ВИДЕОПОТОКА
+     · stream  — сетевой поток (MJPEG / HLS / WebSocket-JPEG)
+     · webcam  — локальная камера (getUserMedia, реальное время)
+     · folder  — папка со скриншотами (спутник; автоопрос через
+                 File System Access API, каждый новый файл → кадр)
+     ================================================================ */
+
+  /** Полный останов любого активного канала. */
+  const disconnectChannel = useCallback(() => {
+    if (webcamElRef.current) {
+      const so = webcamElRef.current.srcObject as MediaStream | null;
+      so?.getTracks().forEach((t) => t.stop());
+      webcamElRef.current.srcObject = null;
+      webcamElRef.current = null;
+    }
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+    if (streamVideoRef.current) {
+      streamVideoRef.current.pause();
+      streamVideoRef.current.removeAttribute('src');
+      streamVideoRef.current = null;
+    }
+    if (streamImgRef.current) {
+      streamImgRef.current.src = '';
+      streamImgRef.current = null;
+    }
+    if (wsRef.current) {
+      wsRef.current.onmessage = null;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    if (folderTimerRef.current) {
+      clearInterval(folderTimerRef.current);
+      folderTimerRef.current = null;
+    }
+    streamCanvasRef.current = null;
+    folderImgRef.current = null;
+    folderHandleRef.current = null;
+    folderLoadedTs.current = 0;
+    setFolderInfo((s) => ({ ...s, connected: false, fileCount: 0, latestName: '', latestTime: '' }));
+    setChannel({ active: false, type: 'webcam', label: '', status: '' });
+    resetPlayback();
+    pushEvent('info', 'Внешний канал отключён · возврат к камере наблюдения');
+  }, [pushEvent, resetPlayback]);
+
+  /** Локальная камера в реальном времени. */
+  const connectWebcam = useCallback(
+    async (deviceId: string, label: string) => {
+      disconnectChannel();
+      const name = label || 'Локальная камера';
+      setChannel({ active: true, type: 'webcam', label: name, status: 'подключение…' });
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: deviceId ? { deviceId: { exact: deviceId } } : true,
+          audio: false,
+        });
+        const v = document.createElement('video');
+        v.srcObject = stream;
+        v.muted = true;
+        v.playsInline = true;
+        await v.play();
+        webcamElRef.current = v;
+        setChannel({ active: true, type: 'webcam', label: name, status: 'live' });
+        pushEvent('info', `Канал подключён: ${name} · изображение в реальном времени`);
+        pushToast('ok', `Камера «${name}» подключена`);
+      } catch {
+        setChannel({ active: false, type: 'webcam', label: '', status: '' });
+        pushToast('err', 'Не удалось получить доступ к камере (проверьте разрешения)');
+      }
+    },
+    [disconnectChannel, pushEvent, pushToast],
+  );
+
+  /** Сетевой поток: MJPEG (нативно), HLS (hls.js), WebSocket (бинарные JPEG-кадры). */
+  const connectStream = useCallback(
+    async (kind: StreamKind, url: string) => {
+      disconnectChannel();
+      setChannel({ active: true, type: 'stream', kind, label: url, status: 'подключение…' });
+      const fail = (msg: string) => {
+        setChannel((ch) => (ch.active ? { ...ch, status: 'ошибка потока' } : ch));
+        pushToast('err', msg);
+      };
+
+      if (kind === 'mjpeg') {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        let announced = false;
+        img.onload = () => {
+          streamImgRef.current = img;
+          if (!announced) {
+            announced = true;
+            setChannel((ch) => ({ ...ch, status: 'live' }));
+            pushEvent('info', 'Канал MJPEG подключён · кадры обновляются в реальном времени');
+          }
+        };
+        img.onerror = () => fail('MJPEG-поток недоступен или не отвечает');
+        img.src = url;
+        streamImgRef.current = img;
+        return;
+      }
+
+      if (kind === 'hls') {
+        const v = document.createElement('video');
+        v.muted = true;
+        v.playsInline = true;
+        streamVideoRef.current = v;
+        try {
+          const Hls = (await import('hls.js')).default;
+          if (Hls.isSupported()) {
+            const hls = new Hls({ liveDurationInfinity: true });
+            hlsRef.current = hls;
+            hls.loadSource(url);
+            hls.attachMedia(v);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+              v.play().catch(() => {});
+              setChannel((ch) => ({ ...ch, status: 'live' }));
+              pushEvent('info', 'Канал HLS подключён · воспроизведение потока');
+            });
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            hls.on(Hls.Events.ERROR, (_e: unknown, data: any) => {
+              if (data?.fatal) fail('HLS: фатальная ошибка потока (проверьте URL)');
+            });
+          } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+            v.src = url;
+            await v.play();
+            setChannel((ch) => ({ ...ch, status: 'live' }));
+            pushEvent('info', 'Канал HLS подключён (нативный плеер)');
+          } else {
+            fail('HLS не поддерживается этим браузером');
+          }
+        } catch {
+          fail('Не удалось инициализировать HLS-плеер');
+        }
+        return;
+      }
+
+      // WebSocket: сервер присылает бинарные JPEG-кадры
+      try {
+        const ws = new WebSocket(url);
+        ws.binaryType = 'arraybuffer';
+        wsRef.current = ws;
+        const c = document.createElement('canvas');
+        c.width = 960;
+        c.height = 540;
+        streamCanvasRef.current = c;
+        const cctx = c.getContext('2d')!;
+        ws.onopen = () => {
+          setChannel((ch) => ({ ...ch, status: 'ожидание кадров…' }));
+          pushEvent('info', 'WebSocket-канал открыт · ожидание JPEG-кадров');
+        };
+        ws.onmessage = async (ev) => {
+          if (typeof ev.data === 'string') return;
+          try {
+            const bmp = await createImageBitmap(new Blob([ev.data], { type: 'image/jpeg' }));
+            if (c.width !== bmp.width || c.height !== bmp.height) {
+              c.width = bmp.width;
+              c.height = bmp.height;
+            }
+            cctx.drawImage(bmp, 0, 0);
+            bmp.close();
+            setChannel((ch) =>
+              ch.active && ch.status !== 'live' ? { ...ch, status: 'live' } : ch,
+            );
+          } catch {
+            /* повреждённый кадр — пропускаем */
+          }
+        };
+        ws.onerror = () => fail('WebSocket: соединение не установлено');
+        ws.onclose = () =>
+          setChannel((ch) =>
+            ch.active && ch.type === 'stream' && ch.kind === 'ws'
+              ? { ...ch, status: 'соединение закрыто' }
+              : ch,
+          );
+      } catch {
+        fail('Некорректный WebSocket-адрес');
+      }
+    },
+    [disconnectChannel, pushEvent, pushToast],
+  );
+
+  /** Спутниковый канал: наблюдение за локальной папкой со скриншотами. */
+  const connectFolder = useCallback(
+    async (pollSec: number) => {
+      const w = window as unknown as {
+        showDirectoryPicker?: () => Promise<{
+          name: string;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          entries: () => AsyncIterable<[string, any]>;
+        }>;
+      };
+      if (typeof w.showDirectoryPicker !== 'function') {
+        pushToast('err', 'Браузер не поддерживает доступ к папкам (нужен Chromium)');
+        return;
+      }
+      try {
+        const handle = await w.showDirectoryPicker();
+        disconnectChannel();
+        const interval = Math.min(120, Math.max(2, pollSec));
+        folderHandleRef.current = handle;
+        folderLoadedTs.current = 0;
+        setChannel({
+          active: true,
+          type: 'folder',
+          label: handle.name,
+          status: 'наблюдение за папкой…',
+        });
+        setFolderInfo({ connected: true, fileCount: 0, latestName: '', latestTime: '', pollSec: interval });
+        pushEvent('info', `Спутниковый канал: папка «${handle.name}» · опрос каждые ${interval} с`);
+
+        const scan = async () => {
+          let count = 0;
+          let latestFile: File | null = null;
+          let latestName = '';
+          let latestTs = 0;
+          try {
+            for await (const [name, h] of handle.entries()) {
+              if (h.kind !== 'file' || !/\.(png|jpe?g|webp)$/i.test(name)) continue;
+              count++;
+              const f: File = await h.getFile();
+              if (f.lastModified > latestTs) {
+                latestTs = f.lastModified;
+                latestFile = f;
+                latestName = name;
+              }
+            }
+          } catch {
+            return;
+          }
+          setFolderInfo((s) => ({
+            ...s,
+            fileCount: count,
+            latestName,
+            latestTime: latestTs ? new Date(latestTs).toLocaleTimeString('ru-RU') : '',
+          }));
+          if (latestFile && latestTs > folderLoadedTs.current) {
+            folderLoadedTs.current = latestTs;
+            const objUrl = URL.createObjectURL(latestFile);
+            const img = new Image();
+            img.onload = () => {
+              folderImgRef.current = img;
+              URL.revokeObjectURL(objUrl);
+              setChannel((ch) => ({ ...ch, status: `live · ${latestName}` }));
+              pushEvent('info', `Получен новый снимок: ${latestName} · сравнение с эталоном`);
+            };
+            img.src = objUrl;
+          }
+        };
+        scan();
+        folderTimerRef.current = window.setInterval(scan, interval * 1000);
+      } catch {
+        /* пользователь отменил выбор папки */
+      }
+    },
+    [disconnectChannel, pushEvent, pushToast],
+  );
+
+  // корректное освобождение ресурсов при размонтировании
+  useEffect(() => () => disconnectChannel(), [disconnectChannel]);
+
   const resetCustom = useCallback(() => {
     stopVideoInternal();
     uploadedRefImg.current = null;
@@ -1027,10 +1309,22 @@ export function useEngine(): Engine {
       const ctx = cv.getContext('2d')!;
       const c = cfg.current;
 
+      // внешний канал видеопотока имеет наивысший приоритет
       const v = videoElRef.current;
-      const useVideo = videoActiveRef.current && v && v.readyState >= 2 && v.videoWidth > 0;
-      if (useVideo) {
-        drawCover(ctx, v!, VIEW_W, VIEW_H);
+      const ch = channelRef.current;
+      let chSrc: CanvasImageSource | null = null;
+      if (ch.active) {
+        chSrc =
+          ch.type === 'folder'
+            ? folderImgRef.current
+            : ch.type === 'webcam'
+              ? webcamElRef.current
+              : streamVideoRef.current ?? streamImgRef.current ?? streamCanvasRef.current;
+      }
+      if (chSrc) {
+        drawCover(ctx, chSrc, VIEW_W, VIEW_H);
+      } else if (videoActiveRef.current && v && v.readyState >= 2 && v.videoWidth > 0) {
+        drawCover(ctx, v, VIEW_W, VIEW_H);
       } else {
         const cur = uploadedCurImg.current ?? camSources.current[c.cameraId];
         if (!cur) {
@@ -1347,6 +1641,22 @@ export function useEngine(): Engine {
   // зеркало stats для использования внутри цикла (tick журнала)
   statsRef.current = stats;
 
+  // внешние каналы (внутри цикла отрисовки)
+  const channelRef = useRef<ChannelInfo>(channel);
+  channelRef.current = channel;
+  const webcamElRef = useRef<HTMLVideoElement | null>(null);
+  const streamVideoRef = useRef<HTMLVideoElement | null>(null); // HLS
+  const streamImgRef = useRef<HTMLImageElement | null>(null); // MJPEG
+  const streamCanvasRef = useRef<HTMLCanvasElement | null>(null); // WebSocket JPEG
+  const wsRef = useRef<WebSocket | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const hlsRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const folderHandleRef = useRef<any>(null);
+  const folderTimerRef = useRef<number | null>(null);
+  const folderLoadedTs = useRef(0);
+  const folderImgRef = useRef<HTMLImageElement | null>(null);
+
   /* ---------- снимок обстановки и отчёт ---------- */
   const snapshot = useCallback(() => {
     const live = liveRef.current;
@@ -1483,6 +1793,12 @@ export function useEngine(): Engine {
     artifact,
     clearArtifact,
     toasts,
+    channel,
+    folderInfo,
+    connectWebcam,
+    connectStream,
+    connectFolder,
+    disconnectChannel,
     mapScale,
     setMapScale,
     rulerActive,

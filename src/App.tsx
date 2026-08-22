@@ -1,5 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import BottomDock from './components/BottomDock';
+import ChannelModal from './components/ChannelModal';
 import DetectionPanel from './components/DetectionPanel';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
@@ -117,6 +118,7 @@ export default function App() {
   const engine = useEngine();
   const cam = CAMERAS.find((c) => c.id === engine.cameraId);
   const scn = SCENARIOS.find((s) => s.id === engine.scenario);
+  const [channelOpen, setChannelOpen] = useState(false);
 
   return (
     <div className="min-h-screen font-sans text-fg">
@@ -127,6 +129,8 @@ export default function App() {
           engine.speed !== 1 ? `${scn?.title ?? '—'} · ×${engine.speed}` : scn?.title ?? '—'
         }
         ready={engine.ready}
+        channelActive={engine.channel.active}
+        onOpenChannel={() => setChannelOpen(true)}
       />
 
       <main className="mx-auto grid max-w-[1720px] gap-3 p-3 lg:grid-cols-[290px_minmax(0,1fr)_375px] lg:p-4">
@@ -156,6 +160,7 @@ export default function App() {
 
       <ArtifactModal engine={engine} />
       <ToastStack engine={engine} />
+      {channelOpen && <ChannelModal engine={engine} onClose={() => setChannelOpen(false)} />}
     </div>
   );
 }
