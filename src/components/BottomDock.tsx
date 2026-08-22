@@ -118,9 +118,8 @@ export default function BottomDock({ engine }: { engine: Engine }) {
                 onClick={engine.snapshot}
                 className="flex items-center justify-center gap-1.5 rounded-[5px] border border-line bg-panel2 px-2 py-2 text-[11.5px] font-semibold text-mut transition-colors hover:border-teal/50 hover:bg-teal/10 hover:text-teal"
               >
-                <IconSnapshot className="h-3.5 w-3.5" /> Снимок PNG
-              </button>
-              <button
+            <IconSnapshot className="h-3.5 w-3.5" /> Снимок обстановки
+          </button>              <button
                 onClick={engine.exportReport}
                 className="flex items-center justify-center gap-1.5 rounded-[5px] border border-line bg-panel2 px-2 py-2 text-[11.5px] font-semibold text-mut transition-colors hover:border-teal/50 hover:bg-teal/10 hover:text-teal"
               >

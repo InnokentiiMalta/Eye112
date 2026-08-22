@@ -85,6 +85,21 @@ export interface OverlaySettings {
   thermal: boolean;
 }
 
+/** Всплывающее уведомление о результате действия. */
+export interface ToastMsg {
+  id: number;
+  kind: 'ok' | 'err';
+  text: string;
+}
+
+/** Сформированный файл (снимок/отчёт) для скачивания и предпросмотра. */
+export interface Artifact {
+  kind: 'png' | 'json';
+  name: string;
+  url: string;
+  text?: string;
+}
+
 export const KLASS_META: Record<Klass, { color: string; label: string; severity: Severity }> = {
   fire: { color: '#ff5a36', label: 'Возгорание', severity: 'critical' },
   smoke: { color: '#9fb0c4', label: 'Шлейф дыма', severity: 'warn' },

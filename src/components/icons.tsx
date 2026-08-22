@@ -105,6 +105,14 @@ export const IconDoc = ({ className }: IconProps) => (
   </svg>
 );
 
+export const IconDownload = ({ className }: IconProps) => (
+  <svg {...base(className)}>
+    <path d="M12 3v11" />
+    <path d="m7.5 10 4.5 4.5L16.5 10" />
+    <path d="M4 18v2.5h16V18" />
+  </svg>
+);
+
 export const IconGrid = ({ className }: IconProps) => (
   <svg {...base(className)}>
     <rect x="3" y="3" width="18" height="18" rx="1" />

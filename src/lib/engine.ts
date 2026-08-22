@@ -12,8 +12,10 @@ import {
   extractBlobs,
 } from './pipeline';
 import { CAMERAS, drawCover, detectWaterSources, loadCameraSource, type WaterSource } from './scenes';
-import { drawScenario } from './scenarios';
+import { SCENARIOS, drawScenario } from './scenarios';
+import { composeDashboard } from './screenshot';
 import type {
+  Artifact,
   Detection,
   EngineStats,
   JournalEntry,
@@ -23,6 +25,7 @@ import type {
   Severity,
   Snapshot,
   SystemStatus,
+  ToastMsg,
   VideoState,
   ViewMode,
 } from './types';
@@ -38,6 +41,7 @@ const MAX_JOURNAL = 160;
 let eventSeq = 1;
 let detSeq = 1;
 let journalSeq = 1;
+let toastSeq = 1;
 let diffBuf: Uint8Array | null = null;
 
 function makeNoiseCanvas(w: number, h: number, seed: number): HTMLCanvasElement {
@@ -104,6 +108,10 @@ export interface Engine {
   // скорость развития сценариев / видео
   speed: number;
   setSpeed: (v: number) => void;
+  // файлы и уведомления
+  artifact: Artifact | null;
+  clearArtifact: () => void;
+  toasts: ToastMsg[];
   bindLive: (el: HTMLCanvasElement | null) => void;
   bindRef: (el: HTMLCanvasElement | null) => void;
   bindHeat: (el: HTMLCanvasElement | null) => void;
@@ -146,6 +154,9 @@ export function useEngine(): Engine {
   const [waterSourceCount, setWaterSourceCount] = useState(0);
   // множитель скорости развития сценариев / видео
   const [speed, setSpeedState] = useState(1);
+  // файлы для скачивания + уведомления
+  const [artifact, setArtifact] = useState<Artifact | null>(null);
+  const [toasts, setToasts] = useState<ToastMsg[]>([]);
 
   const liveRef = useRef<HTMLCanvasElement | null>(null);
   const refRef = useRef<HTMLCanvasElement | null>(null);
@@ -210,6 +221,47 @@ export function useEngine(): Engine {
       text,
     };
     setEvents((prev) => [ev, ...prev].slice(0, 80));
+  }, []);
+
+  /* ---------- уведомления и доставка файлов ---------- */
+  const pushToast = useCallback((kind: 'ok' | 'err', text: string) => {
+    const id = toastSeq++;
+    setToasts((t) => [...t.slice(-2), { id, kind, text }]);
+    window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4600);
+  }, []);
+
+  /**
+   * Передаёт файл пользователю: пробует прямое скачивание и всегда открывает
+   * окно предпросмотра (работает даже в средах, блокирующих download).
+   */
+  const deliver = useCallback(
+    (blob: Blob, name: string, kind: 'png' | 'json', text?: string) => {
+      const url = URL.createObjectURL(blob);
+      try {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = name;
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } catch {
+        /* скачивание может быть заблокировано средой — файл доступен в предпросмотре */
+      }
+      setArtifact((prev) => {
+        if (prev) URL.revokeObjectURL(prev.url);
+        return { kind, name, url, text };
+      });
+      pushToast('ok', `${name} готов · окно предпросмотра открыто`);
+    },
+    [pushToast],
+  );
+
+  const clearArtifact = useCallback(() => {
+    setArtifact((prev) => {
+      if (prev) URL.revokeObjectURL(prev.url);
+      return null;
+    });
   }, []);
 
   /* ---------- возврат к «живому» просмотру ---------- */
@@ -918,54 +970,88 @@ export function useEngine(): Engine {
   // зеркало stats для использования внутри цикла (tick журнала)
   statsRef.current = stats;
 
-  /* ---------- снимок и отчёт ---------- */
+  /* ---------- снимок обстановки и отчёт ---------- */
   const snapshot = useCallback(() => {
-    const cv = liveRef.current;
-    if (!cv) return;
-    const out = document.createElement('canvas');
-    out.width = VIEW_W;
-    out.height = VIEW_H;
-    const ctx = out.getContext('2d')!;
-    ctx.drawImage(cv, 0, 0);
-    const c = cfg.current;
-    if (heatRef.current && (c.overlays.heat || c.viewMode === 'thermal')) {
-      ctx.drawImage(heatRef.current, 0, 0, VIEW_W, VIEW_H);
+    const live = liveRef.current;
+    if (!live) {
+      pushToast('err', 'Видеопоток ещё не готов');
+      return;
     }
-    if (overlayRef.current) ctx.drawImage(overlayRef.current, 0, 0);
-    const a = document.createElement('a');
-    a.href = out.toDataURL('image/png');
-    a.download = `oko_frame_${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
-    a.click();
-    pushEvent('info', 'Снимок кадра сохранён (PNG)');
-  }, [pushEvent]);
+    const c = cfg.current;
+    const dets = displayRef.current;
+    const strong = dets.filter((d) => d.confidence >= 0.5);
+    const st: SystemStatus = strong.some((d) => d.severity === 'critical')
+      ? 'critical'
+      : strong.some((d) => d.severity === 'alert')
+        ? 'alert'
+        : strong.some((d) => d.severity === 'warn')
+          ? 'warn'
+          : 'norm';
+    const STATUS_LABEL: Record<SystemStatus, { t: string; col: string }> = {
+      norm: { t: 'ШТАТНО', col: '#48c96f' },
+      warn: { t: 'ВНИМАНИЕ', col: '#f2a72e' },
+      alert: { t: 'УГРОЗА', col: '#f07233' },
+      critical: { t: 'ТРЕВОГА', col: '#f4483c' },
+    };
+    const cam = CAMERAS.find((x) => x.id === c.cameraId);
+    const scn = SCENARIOS.find((s) => s.id === c.scenario);
+    const canvas = composeDashboard({
+      live,
+      heat: heatRef.current,
+      overlay: overlayRef.current,
+      detections: dets,
+      journal: journalRef.current,
+      events: eventsRef.current,
+      stats: statsRef.current,
+      cameraName: cam?.name ?? c.cameraId,
+      statusText: STATUS_LABEL[st].t,
+      statusColor: STATUS_LABEL[st].col,
+      scenarioTitle: scn?.title ?? c.scenario,
+      threshold: c.threshold,
+      minArea: c.minArea,
+      speed: c.speed,
+    });
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        pushToast('err', 'Не удалось сформировать PNG');
+        return;
+      }
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      deliver(blob, `oko_snapshot_${stamp}.png`, 'png');
+      pushEvent('info', 'Сводный снимок обстановки сформирован (PNG)');
+    }, 'image/png');
+  }, [deliver, pushEvent, pushToast]);
 
   const exportReport = useCallback(() => {
-    const cam = CAMERAS.find((x) => x.id === cfg.current.cameraId);
+    const c = cfg.current;
+    const cam = CAMERAS.find((x) => x.id === c.cameraId);
+    const scn = SCENARIOS.find((s) => s.id === c.scenario);
     const report = {
       system: 'ОКО v3.0',
       generatedAt: new Date().toISOString(),
-      camera: cam ? cam.name : cfg.current.cameraId,
-      scenario: cfg.current.scenario,
-      params: { threshold: cfg.current.threshold, minAreaPx: cfg.current.minArea },
+      camera: cam ? cam.name : c.cameraId,
+      scenario: scn ? scn.title : c.scenario,
+      speed: c.speed,
+      params: { threshold: c.threshold, minAreaPx: c.minArea },
       detections: displayRef.current.map((d) => ({
         class: d.klass,
         label: d.label,
         confidence: Math.round(d.confidence * 100) / 100,
         areaM2: d.areaM2,
         bbox: d.bbox,
-        thermal: d.thermal ? { tempC: d.thermal.tempC, point: d.thermal } : undefined,
+        thermals: (d.thermals ?? (d.thermal ? [d.thermal] : [])).map((t) => ({
+          tempC: t.tempC,
+          x: Math.round(t.x),
+          y: Math.round(t.y),
+        })),
       })),
       recentEvents: eventsRef.current.slice(0, 30),
     };
-    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `oko_report_${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const text = JSON.stringify(report, null, 2);
+    const blob = new Blob([text], { type: 'application/json' });
+    deliver(blob, `oko_report_${Date.now()}.json`, 'json', text);
     pushEvent('info', 'Отчёт сформирован (JSON)');
-  }, [pushEvent]);
+  }, [deliver, pushEvent]);
 
   const status: SystemStatus = useMemo(() => {
     const strong = detections.filter((d) => d.confidence >= 0.5);
@@ -1017,6 +1103,9 @@ export function useEngine(): Engine {
     waterSourceCount,
     speed,
     setSpeed,
+    artifact,
+    clearArtifact,
+    toasts,
     bindLive,
     bindRef,
     bindHeat,
