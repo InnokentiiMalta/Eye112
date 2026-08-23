@@ -1,27 +1,26 @@
 import { useEffect, useRef } from 'react';
 import type { Engine } from '../lib/engine';
-import type { Klass, SystemStatus } from '../lib/types';
-import { KLASS_META } from '../lib/types';
+import type { OverlaySettings, SystemStatus } from '../lib/types';
 import {
-  IconCheck,
-  IconCollapse,
-  IconDroplet,
-  IconFlame,
+  IconBoxFrame,
+  IconDoc,
+  IconGrid,
+  IconHeat,
   IconPulse,
-  IconSmoke,
-  IconTerrain,
+  IconSnapshot,
   IconThermo,
-  IconUnknown,
 } from './icons';
 
-const KLASS_ICON: Record<Klass, (p: { className?: string }) => React.ReactElement> = {
-  fire: IconFlame,
-  smoke: IconSmoke,
-  flood: IconDroplet,
-  collapse: IconCollapse,
-  terrain: IconTerrain,
-  unknown: IconUnknown,
-};
+const TOGGLES: Array<{
+  key: keyof OverlaySettings;
+  label: string;
+  Icon: (p: { className?: string }) => React.ReactElement;
+}> = [
+  { key: 'boxes', label: 'Рамки', Icon: IconBoxFrame },
+  { key: 'heat', label: 'Тепло', Icon: IconHeat },
+  { key: 'grid', label: 'Сетка', Icon: IconGrid },
+  { key: 'thermal', label: 'Термометки', Icon: IconThermo },
+];
 
 const STATUS_WORD: Record<SystemStatus, { word: string; cls: string; note: string }> = {
   norm: { word: 'НОРМА', cls: 'text-okc', note: 'сцена соответствует эталону' },
@@ -256,60 +255,86 @@ export default function DetectionPanel({ engine }: { engine: Engine }) {
         </div>
       </div>
 
-      {/* классификация аномалий — в самый низ */}
-      <div className="panel flex flex-col p-3.5">
-        <div className="mb-2 flex items-center justify-between">
-          <div className="hud-label">Классификация аномалий</div>
-          <span className="font-mono text-[9.5px] text-dim tabular-nums">
-            обнаружено: {dets.length}
+      {/* параметры конвейера — перенесены из нижней панели */}
+      <div className="panel p-3.5">
+        <div className="hud-label mb-3">Параметры конвейера</div>
+
+        <div className="mb-1 flex items-baseline justify-between">
+          <label htmlFor="thr" className="text-[11.5px] font-medium text-mut">
+            Порог различий Δ
+          </label>
+          <span className="font-mono text-[11px] font-bold text-teal tabular-nums">
+            {engine.threshold}
           </span>
         </div>
-        {dets.length > 0 ? (
-          <div className="space-y-1.5">
-            {dets.slice(0, 5).map((d) => {
-              const Icon = KLASS_ICON[d.klass];
-              const meta = KLASS_META[d.klass];
-              return (
-                <div
-                  key={d.id}
-                  className="slide-in-up rounded-[5px] border border-line bg-panel2 px-2.5 py-1.5"
-                  style={{ borderLeft: `3px solid ${meta.color}` }}
-                >
-                  <div className="flex items-center gap-2">
-                    <Icon className="h-3.5 w-3.5 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-fg">
-                      {d.label}
-                    </span>
-                    {d.thermal && (
-                      <span className="font-mono text-[10px] font-bold text-thermo">
-                        ≈{d.thermal.tempC}°C
-                      </span>
-                    )}
-                    <span
-                      className="rounded-[3px] px-1.5 py-0.5 font-mono text-[9.5px] font-bold"
-                      style={{ color: meta.color, background: `${meta.color}1f` }}
-                    >
-                      {Math.round(d.confidence * 100)}%
-                    </span>
-                  </div>
-                  <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-line">
-                    <div
-                      className="h-full rounded-full transition-all duration-300"
-                      style={{ width: `${Math.round(d.confidence * 100)}%`, background: meta.color }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 rounded-[5px] border border-line bg-panel2 px-2.5 py-2">
-            <IconCheck className="h-4 w-4 shrink-0 text-okc/70" />
-            <span className="text-[11.5px] text-dim">
-              Расхождений с эталоном выше порога нет — сцена стабильна.
-            </span>
-          </div>
-        )}
+        <input
+          id="thr"
+          type="range"
+          min={6}
+          max={80}
+          value={engine.threshold}
+          onChange={(e) => engine.setThreshold(Number(e.target.value))}
+        />
+        <div className="mb-3 flex justify-between font-mono text-[9px] text-dim">
+          <span>чувствительнее</span>
+          <span>строже</span>
+        </div>
+
+        <div className="mb-1 flex items-baseline justify-between">
+          <label htmlFor="area" className="text-[11.5px] font-medium text-mut">
+            Минимальная область
+          </label>
+          <span className="font-mono text-[11px] font-bold text-teal tabular-nums">
+            {engine.minArea} px
+          </span>
+        </div>
+        <input
+          id="area"
+          type="range"
+          min={8}
+          max={240}
+          value={engine.minArea}
+          onChange={(e) => engine.setMinArea(Number(e.target.value))}
+        />
+        <div className="mb-3 flex justify-between font-mono text-[9px] text-dim">
+          <span>мелкие очаги</span>
+          <span>крупные зоны</span>
+        </div>
+
+        <div className="mb-3 grid grid-cols-4 gap-1.5">
+          {TOGGLES.map(({ key, label, Icon }) => {
+            const on = engine.overlays[key];
+            return (
+              <button
+                key={key}
+                onClick={() => engine.toggleOverlay(key)}
+                className={`flex flex-col items-center gap-1 rounded-[5px] border px-1 py-1.5 text-[9.5px] font-semibold transition-all duration-150 ${
+                  on
+                    ? 'border-teal/50 bg-teal/10 text-teal'
+                    : 'border-line bg-panel2 text-dim hover:border-line2 hover:text-mut'
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="grid grid-cols-2 gap-1.5">
+          <button
+            onClick={engine.snapshot}
+            className="flex items-center justify-center gap-1.5 rounded-[5px] border border-line bg-panel2 px-2 py-2 text-[11.5px] font-semibold text-mut transition-colors hover:border-teal/50 hover:bg-teal/10 hover:text-teal"
+          >
+            <IconSnapshot className="h-3.5 w-3.5" /> Снимок обстановки
+          </button>
+          <button
+            onClick={engine.exportReport}
+            className="flex items-center justify-center gap-1.5 rounded-[5px] border border-line bg-panel2 px-2 py-2 text-[11.5px] font-semibold text-mut transition-colors hover:border-teal/50 hover:bg-teal/10 hover:text-teal"
+          >
+            <IconDoc className="h-3.5 w-3.5" /> Отчёт JSON
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -216,6 +216,7 @@ export function useEngine(): Engine {
   const thermalLogged = useRef(false);
   const prevDets = useRef<Detection[]>([]);
   const eventsRef = useRef<LogEvent[]>([]);
+  const seenAtRef = useRef<Record<string, string>>({});
 
   // журнал / перемотка (внутри цикла)
   const historyRef = useRef<Snapshot[]>([]);
@@ -1205,8 +1206,16 @@ export function useEngine(): Engine {
         }
       }
       dets.sort((a, b) => sevRank[b.severity] - sevRank[a.severity] || b.confidence - a.confidence);
-      dets = dets.slice(0, 10);
+      dets = dets.slice(0, 16);
       prevDets.current = dets;
+
+      // фиксируем время первого обнаружения каждой аномалии
+      // (идентификатор стабилен между кадрами благодаря временной стабилизации)
+      const nowStr = new Date().toTimeString().slice(0, 8);
+      for (const d of dets) {
+        if (!seenAtRef.current[d.id]) seenAtRef.current[d.id] = nowStr;
+        d.time = seenAtRef.current[d.id];
+      }
 
       // тепловой слой
       const hc = heatRef.current;

@@ -30,6 +30,8 @@ export interface Detection {
   thermal?: ThermalPoint;
   /** все термоточки внутри аномалии */
   thermals?: ThermalPoint[];
+  /** время первого обнаружения (HH:MM:SS) */
+  time?: string;
 }
 
 export interface LogEvent {
