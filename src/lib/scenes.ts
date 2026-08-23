@@ -6,32 +6,43 @@ export interface CameraDef {
   name: string;
   short: string;
   src: string;
+  /** идентификатор процедурной фолбэк-сцены */
+  scene: SceneKind;
 }
+
+export type SceneKind = 'aerial' | 'satellite' | 'depot' | 'tanks';
+
+/** Спутниковая карта — для неё доступны масштаб и линейка. */
+export const MAP_CAMERA_ID = 'cam2';
 
 export const CAMERAS: CameraDef[] = [
   {
     id: 'cam1',
-    name: 'Камера 01 · Лесная промзона',
+    name: 'Камера 01 · Лесной массив (БПЛА 500 м)',
     short: 'КАМ-01',
-    src: 'https://image.qwenlm.ai/generated-images/60e30582-1d58-4610-97d7-a82cbc463a58/_result.png',
+    src: 'https://image.qwenlm.ai/generated-images/12f90e78-4ca9-4e70-aa15-1be4fffd54e5/_result.png',
+    scene: 'aerial',
   },
   {
     id: 'cam2',
-    name: 'Камера 02 · Резервуарный парк',
+    name: 'Камера 02 · Лесной массив (спутник)',
     short: 'КАМ-02',
-    src: 'https://image.qwenlm.ai/generated-images/52cb0b5b-956a-45b3-979c-fa7110b93339/_result.png',
+    src: 'https://image.qwenlm.ai/generated-images/036de0a2-8712-48d4-b107-c8c8cf067bd7/_result.png',
+    scene: 'satellite',
   },
   {
     id: 'cam3',
-    name: 'Камера 03 · Лесной массив (БПЛА 500 м)',
+    name: 'Камера 03 · Лесная промзона',
     short: 'КАМ-03',
-    src: 'https://image.qwenlm.ai/generated-images/12f90e78-4ca9-4e70-aa15-1be4fffd54e5/_result.png',
+    src: 'https://image.qwenlm.ai/generated-images/60e30582-1d58-4610-97d7-a82cbc463a58/_result.png',
+    scene: 'depot',
   },
   {
     id: 'cam4',
-    name: 'Камера 04 · Лесной массив (спутник)',
+    name: 'Камера 04 · Резервуарный парк',
     short: 'КАМ-04',
-    src: 'https://image.qwenlm.ai/generated-images/036de0a2-8712-48d4-b107-c8c8cf067bd7/_result.png',
+    src: 'https://image.qwenlm.ai/generated-images/52cb0b5b-956a-45b3-979c-fa7110b93339/_result.png',
+    scene: 'tanks',
   },
 ];
 
@@ -47,11 +58,11 @@ function mulberry32(seed: number) {
 }
 
 /** Загружает изображение и проверяет, что пиксели читаемы (CORS-safe). */
-export function loadCameraSource(src: string, camIndex: number): Promise<CanvasImageSource> {
+export function loadCameraSource(src: string, scene: SceneKind): Promise<CanvasImageSource> {
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    const fallback = () => resolve(makeSyntheticScene(camIndex));
+    const fallback = () => resolve(makeSyntheticScene(scene));
     img.onerror = fallback;
     img.onload = () => {
       try {
@@ -131,8 +142,9 @@ export function detectWaterSources(img: ImageData): WaterSource[] {
   }));
 }
 
-/** Процедурная сцена (фолбэк): склад у лесополосы / резервуарный парк. */
-export function makeSyntheticScene(idx: number): HTMLCanvasElement {
+/** Процедурная сцена (фолбэк): склад у лесополосы / резервуарный парк / вид сверху. */
+export function makeSyntheticScene(kind: SceneKind): HTMLCanvasElement {
+  const idx = { depot: 0, tanks: 1, aerial: 2, satellite: 3 }[kind];
   const W = 1280;
   const H = 720;
   const c = document.createElement('canvas');
@@ -308,7 +320,7 @@ export function makeSyntheticScene(idx: number): HTMLCanvasElement {
     riverPath();
     ctx.stroke();
 
-    // спутниковая стилистика (КАМ-04): делянки вырубок и прямые просеки
+    // спутниковая стилистика (КАМ-02): делянки вырубок и прямые просеки
     if (idx === 3) {
       for (let i = 0; i < 4; i++) {
         const px = W * (0.12 + rnd() * 0.7);

@@ -11,7 +11,14 @@ import {
   estimateTempC,
   extractBlobs,
 } from './pipeline';
-import { CAMERAS, drawCover, detectWaterSources, loadCameraSource, type WaterSource } from './scenes';
+import {
+  CAMERAS,
+  MAP_CAMERA_ID,
+  drawCover,
+  detectWaterSources,
+  loadCameraSource,
+  type WaterSource,
+} from './scenes';
 import { SCENARIOS, drawScenario } from './scenarios';
 import { composeDashboard } from './screenshot';
 import type {
@@ -355,7 +362,7 @@ export function useEngine(): Engine {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const loaded = await Promise.all(CAMERAS.map((c, i) => loadCameraSource(c.src, i)));
+      const loaded = await Promise.all(CAMERAS.map((c) => loadCameraSource(c.src, c.scene)));
       if (cancelled) return;
       CAMERAS.forEach((c, i) => {
         camSources.current[c.id] = loaded[i];
@@ -1476,7 +1483,7 @@ export function useEngine(): Engine {
         const cur = cursorRef.current;
         const endX = r.phase === 'live' ? (cur ? cur.x : r.ax) : r.bx;
         const endY = r.phase === 'live' ? (cur ? cur.y : r.ay) : r.by;
-        const isCam4 = cfg.current.cameraId === 'cam4';
+        const isCam4 = cfg.current.cameraId === MAP_CAMERA_ID;
 
         if (r.phase !== 'idle') {
           ctx.save();

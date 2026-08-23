@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import type { Engine } from '../lib/engine';
-import { CAMERAS } from '../lib/scenes';
+import { CAMERAS, MAP_CAMERA_ID } from '../lib/scenes';
 import { SCENARIOS } from '../lib/scenarios';
 import type { ScenarioId } from '../lib/types';
 import {
@@ -92,7 +92,7 @@ export default function Sidebar({
           );
         })}
       </div>
-      {engine.cameraId === 'cam4' && (
+      {engine.cameraId === MAP_CAMERA_ID && (
         <p className="slide-in-up mt-2 rounded-[4px] border border-teal/25 bg-teal/5 px-2 py-1.5 text-[10px] leading-snug text-teal/90">
           Режим карты: «Задать масштаб» — отметьте эталонный отрезок и укажите его длину в
           метрах; «Линейка» измеряет расстояния в заданном масштабе.

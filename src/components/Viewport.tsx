@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Engine } from '../lib/engine';
 import { VIEW_H, VIEW_W } from '../lib/engine';
 import { AW, AH } from '../lib/pipeline';
-import { CAMERAS } from '../lib/scenes';
+import { CAMERAS, MAP_CAMERA_ID } from '../lib/scenes';
 import type { ViewMode } from '../lib/types';
 import {
   IconAlert,
@@ -43,7 +43,7 @@ export default function Viewport({ engine }: { engine: Engine }) {
 
   const cam = CAMERAS.find((c) => c.id === engine.cameraId);
   const mode = engine.viewMode;
-  const isMap = engine.cameraId === 'cam4';
+  const isMap = engine.cameraId === MAP_CAMERA_ID;
   const rulerOn = engine.rulerActive && mode !== 'compare' && mode !== 'reference';
   const calibOn = engine.calibActive && mode !== 'compare' && mode !== 'reference';
   // длина эталонного отрезка в метрах (ввод пользователя)
