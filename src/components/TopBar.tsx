@@ -32,11 +32,9 @@ interface Props {
   cameraName: string;
   scenarioTitle: string;
   ready: boolean;
-  channelActive: boolean;
-  onOpenChannel: () => void;
 }
 
-export default function TopBar({ status, cameraName, scenarioTitle, ready, channelActive, onOpenChannel }: Props) {
+export default function TopBar({ status, cameraName, scenarioTitle, ready }: Props) {
   const chip = STATUS_CHIP[status];
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-abyss/85 backdrop-blur-sm">
@@ -66,17 +64,6 @@ export default function TopBar({ status, cameraName, scenarioTitle, ready, chann
           <span className="hidden font-mono text-[10px] tracking-[0.18em] text-dim sm:block">
             {ready ? 'ОБРАБОТКА: ЛОКАЛЬНО · 5 ГЦ' : 'ИНИЦИАЛИЗАЦИЯ…'}
           </span>
-          <button
-            onClick={onOpenChannel}
-            className={`flex items-center gap-2 rounded-[4px] border px-3 py-1.5 font-mono text-[11px] font-bold tracking-[0.1em] transition-all ${
-              channelActive
-                ? 'border-teal/60 bg-teal/15 text-teal shadow-[0_0_14px_rgba(47,214,195,0.25)]'
-                : 'border-line bg-panel text-mut hover:border-teal/50 hover:text-teal'
-            }`}
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${channelActive ? 'bg-teal led-blink' : 'bg-dim'}`} />
-            КАНАЛ
-          </button>
           <span
             className={`rounded-[4px] border px-3 py-1.5 font-mono text-[11px] font-bold tracking-[0.14em] ${chip.cls}`}
           >

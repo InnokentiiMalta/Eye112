@@ -94,6 +94,7 @@ export interface Engine {
   uploadCurrent: (file: File) => void;
   resetCustom: () => void;
   snapshot: () => void;
+  snapshotFull: () => Promise<void>;
   exportReport: () => void;
   // журнал классификаций с перемоткой
   following: boolean;
@@ -1709,6 +1710,26 @@ export function useEngine(): Engine {
     }, 'image/png');
   }, [deliver, pushEvent, pushToast]);
 
+  /** Скриншот всей программы «как есть» — фактический DOM в момент снимка. */
+  const snapshotFull = useCallback(async () => {
+    const el = document.getElementById('root');
+    if (!el) return;
+    try {
+      const { toPng } = await import('html-to-image');
+      const dataUrl = await toPng(el, {
+        backgroundColor: '#0a0e14',
+        pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5),
+        cacheBust: true,
+      });
+      const blob = await (await fetch(dataUrl)).blob();
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      deliver(blob, `oko_fullscreen_${stamp}.png`, 'png');
+      pushEvent('info', 'Скриншот всей программы сформирован (PNG)');
+    } catch {
+      pushToast('err', 'Не удалось сформировать скриншот экрана');
+    }
+  }, [deliver, pushEvent, pushToast]);
+
   const exportReport = useCallback(() => {
     const c = cfg.current;
     const cam = CAMERAS.find((x) => x.id === c.cameraId);
@@ -1774,6 +1795,7 @@ export function useEngine(): Engine {
     uploadCurrent,
     resetCustom,
     snapshot,
+    snapshotFull,
     exportReport,
     following,
     scrubIndex,

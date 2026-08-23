@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import type { Engine } from '../lib/engine';
 import { CAMERAS } from '../lib/scenes';
 import { SCENARIOS } from '../lib/scenarios';
@@ -11,7 +11,9 @@ import {
   IconFlame,
   IconPause,
   IconPlay,
+  IconRadar,
   IconReset,
+  IconSnapshot,
   IconStop,
   IconTerrain,
   IconUpload,
@@ -45,12 +47,20 @@ function fmtT(s: number): string {
   return `${m}:${String(ss).padStart(2, '0')}`;
 }
 
-export default function Sidebar({ engine }: { engine: Engine }) {
+export default function Sidebar({
+  engine,
+  onOpenChannel,
+}: {
+  engine: Engine;
+  onOpenChannel: () => void;
+}) {
   const refInput = useRef<HTMLInputElement>(null);
   const curInput = useRef<HTMLInputElement>(null);
   const vidInput = useRef<HTMLInputElement>(null);
   const activeStep = engine.ready ? engine.stats.tick % PIPELINE_STEPS.length : -1;
   const hasCustom = engine.customRef || engine.customCur || engine.video.active;
+  const [shotBusy, setShotBusy] = useState(false);
+  const channelLive = engine.channel.active && engine.channel.status.startsWith('live');
 
   return (
     <aside className="panel flex flex-col p-3.5">
@@ -152,7 +162,45 @@ export default function Sidebar({ engine }: { engine: Engine }) {
         })}
       </div>
 
-      <SectionTitle>Собственные кадры и видео</SectionTitle>
+      <SectionTitle>Входящие данные</SectionTitle>
+
+      {/* канал видеопотока */}
+      <button
+        onClick={onOpenChannel}
+        className={`group mb-1.5 flex w-full items-center gap-2.5 rounded-[5px] border px-2.5 py-2 text-left transition-all duration-150 ${
+          channelLive
+            ? 'border-crit/50 bg-crit/10 shadow-[0_0_14px_rgba(244,72,60,0.12)]'
+            : 'border-line bg-panel2 hover:border-line2 hover:bg-panel3'
+        }`}
+      >
+        <IconRadar
+          className={`h-4 w-4 shrink-0 transition-colors ${
+            channelLive ? 'text-crit' : 'text-dim group-hover:text-mut'
+          }`}
+        />
+        <span className="min-w-0 flex-1">
+          <span
+            className={`block text-[12.5px] font-semibold ${channelLive ? 'text-fg' : 'text-mut'}`}
+          >
+            Канал видеопотока
+          </span>
+          <span className="block truncate text-[10.5px] text-dim">
+            {engine.channel.active
+              ? `${engine.channel.label} · ${engine.channel.status}`
+              : 'сеть · локальная камера · спутниковая папка'}
+          </span>
+        </span>
+        <span
+          className={`shrink-0 rounded-[3px] border px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-[0.12em] ${
+            channelLive
+              ? 'border-crit/60 bg-crit/15 text-crit led-blink'
+              : 'border-line text-dim'
+          }`}
+        >
+          {channelLive ? 'LIVE' : 'OFF'}
+        </span>
+      </button>
+
       <div className="grid grid-cols-3 gap-1.5">
         <button
           onClick={() => refInput.current?.click()}
@@ -267,9 +315,33 @@ export default function Sidebar({ engine }: { engine: Engine }) {
           <IconReset className="h-3.5 w-3.5" /> Вернуть демо-сцены
         </button>
       )}
+
+      {/* скриншот всей программы */}
+      <button
+        onClick={async () => {
+          if (shotBusy) return;
+          setShotBusy(true);
+          try {
+            await engine.snapshotFull();
+          } finally {
+            setShotBusy(false);
+          }
+        }}
+        disabled={shotBusy}
+        title="Снимок всего интерфейса программы в текущий момент"
+        className={`mt-1.5 flex items-center justify-center gap-1.5 rounded-[5px] border px-2 py-2 text-[11.5px] font-semibold transition-all duration-150 ${
+          shotBusy
+            ? 'cursor-wait border-teal/40 bg-teal/10 text-teal pulse-soft'
+            : 'border-line bg-panel2 text-mut hover:border-teal/50 hover:bg-teal/10 hover:text-teal'
+        }`}
+      >
+        <IconSnapshot className="h-3.5 w-3.5" />
+        {shotBusy ? 'Формируется…' : 'Скриншот всей программы'}
+      </button>
+
       <p className="mt-2 text-[10.5px] leading-relaxed text-dim">
-        Загрузите эталон («пока ничего не возникло») и кадр или видео с того же ракурса — конвейер
-        выполнит попиксельное сравнение и классификацию в реальном времени.
+        Загрузите эталон («пока ничего не возникло») и кадр, видео или видеоканал с того же
+        ракурса — конвейер выполнит попиксельное сравнение и классификацию в реальном времени.
       </p>
 
       <SectionTitle>Конвейер анализа</SectionTitle>

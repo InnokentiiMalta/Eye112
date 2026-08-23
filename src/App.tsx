@@ -129,13 +129,11 @@ export default function App() {
           engine.speed !== 1 ? `${scn?.title ?? '—'} · ×${engine.speed}` : scn?.title ?? '—'
         }
         ready={engine.ready}
-        channelActive={engine.channel.active}
-        onOpenChannel={() => setChannelOpen(true)}
       />
 
       <main className="mx-auto grid max-w-[1720px] gap-3 p-3 lg:grid-cols-[290px_minmax(0,1fr)_375px] lg:p-4">
         <div className="order-3 lg:order-none">
-          <Sidebar engine={engine} />
+          <Sidebar engine={engine} onOpenChannel={() => setChannelOpen(true)} />
         </div>
 
         <section className="order-1 flex min-w-0 flex-col gap-3 lg:order-none">
