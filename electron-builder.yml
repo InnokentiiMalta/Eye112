@@ -18,7 +18,8 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: Eye112 
+  shortcutName: Eye112
+  differentialPackage: true
 publish:
   provider: github
   owner: InnokentiiMalta
