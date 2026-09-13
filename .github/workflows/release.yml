@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Версия (например, 1.0.3). Должна совпадать с version в package.json.'
+        description: 'Версия (например, 1.0.4). Должна совпадать с version в package.json.'
         required: true
         type: string
 
@@ -28,13 +28,34 @@ jobs:
         run: npm install --legacy-peer-deps
 
       - name: Create tag
+        shell: pwsh
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git tag v${{ inputs.version }}
           git push origin v${{ inputs.version }}
 
-      - name: Build and publish
-        run: npm run dist -- --publish always
+      # Собираем БЕЗ автопубликации: файлы просто появятся в папке release/
+      - name: Build (no publish)
+        run: npm run dist -- --publish never
+
+      # Создаём релиз и загружаем ВСЕ файлы одной командой
+      - name: Create release and upload assets
+        shell: pwsh
+        run: |
+          $tag = "v${{ inputs.version }}"
+          $exe = Get-ChildItem release -Filter "*.exe" | Select-Object -First 1
+          $blockmap = Get-ChildItem release -Filter "*.blockmap" | Select-Object -First 1
+          $latest = "release/latest.yml"
+
+          Write-Host "Creating release $tag..."
+          gh release create $tag --title "$tag" --draft --notes "Release $tag"
+
+          Write-Host "Uploading assets..."
+          $files = @($exe.FullName, $blockmap.FullName, $latest)
+          foreach ($f in $files) {
+            Write-Host "Uploading $f"
+            gh release upload $tag $f --clobber
+          }
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
