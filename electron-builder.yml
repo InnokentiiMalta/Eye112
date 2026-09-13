@@ -1,5 +1,6 @@
 appId: com.eye112.app
 productName: Eye112
+artifactName: "${productName}-Setup-${version}.${ext}"
 
 directories:
   output: release
