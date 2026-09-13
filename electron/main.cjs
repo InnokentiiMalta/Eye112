@@ -1,6 +1,18 @@
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
 const { autoUpdater } = require('electron-updater');
+const log = require('electron-log');
+
+autoUpdater.logger = log;
+autoUpdater.logger.transports.file.level = 'debug';
+log.info('App starting...');
+
+autoUpdater.on('checking-for-update', () => log.info('Проверка обновлений...'));
+autoUpdater.on('update-available', (info) => log.info('Обновление найдено:', info));
+autoUpdater.on('update-not-available', (info) => log.info('Обновлений нет:', info));
+autoUpdater.on('error', (err) => log.error('Ошибка обновления:', err));
+autoUpdater.on('download-progress', (p) => log.info('Загрузка:', p.percent, '%'));
+autoUpdater.on('update-downloaded', (info) => log.info('Обновление скачано:', info));
 
 let mainWindow;
 

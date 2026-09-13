@@ -1,6 +1,6 @@
 {
   "name": "eye112",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "main": "electron/main.cjs",
   "description": "Eye112 desktop application",
   "author": "Anikin",
@@ -21,6 +21,7 @@
     "@supabase/supabase-js": "^2.98.0",
     "canvas-confetti": "^1.9.3",
     "date-fns": "^2.30.0",
+    "electron-log": "^5.4.1",
     "electron-updater": "^6.8.9",
     "framer-motion": "^11.16.1",
     "hls.js": "^1.7.1",
