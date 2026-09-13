@@ -21,6 +21,7 @@ import {
 } from './scenes';
 import { SCENARIOS, drawScenario } from './scenarios';
 import { composeDashboard } from './screenshot';
+import { APP_VERSION } from '../version';
 import type {
   Artifact,
   CalibState,
@@ -1751,7 +1752,7 @@ export function useEngine(): Engine {
     const cam = CAMERAS.find((x) => x.id === c.cameraId);
     const scn = SCENARIOS.find((s) => s.id === c.scenario);
     const report = {
-      system: 'ОКО v3.0',
+      system: `ОКО v${APP_VERSION}`,
       generatedAt: new Date().toISOString(),
       camera: cam ? cam.name : c.cameraId,
       scenario: scn ? scn.title : c.scenario,

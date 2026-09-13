@@ -60,19 +60,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # --- НОВЫЙ ШАГ: Принудительная загрузка blockmap в релиз ---
-      - name: Upload blockmap to release
-        run: |
-          $version = "${{ inputs.version }}"
-          $tag = "v$version"
-          $blockmapFile = "release/Eye112 Setup $version.exe.blockmap"
-          
-          if (Test-Path $blockmapFile) {
-            Write-Host "Uploading $blockmapFile to release $tag..."
-            gh release upload $tag $blockmapFile --clobber
-          } else {
-            Write-Error "Blockmap file not found at: $blockmapFile"
-          }
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # --- КОНЕЦ НОВОГО ШАГА ---
+

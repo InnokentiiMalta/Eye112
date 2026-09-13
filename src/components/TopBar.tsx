@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { SystemStatus } from '../lib/types';
 import { IconEye } from './icons';
+import { APP_VERSION } from '../version';
 
 const STATUS_CHIP: Record<SystemStatus, { text: string; cls: string }> = {
   norm: { text: 'ШТАТНО', cls: 'text-okc border-okc/40 bg-okc/10' },
@@ -47,7 +48,7 @@ export default function TopBar({ status, cameraName, scenarioTitle, ready }: Pro
             <div className="font-display text-[16px] font-bold tracking-[0.22em] text-fg">
               ОК<span className="text-teal">О</span>
             </div>
-            <div className="hud-label">комплекс видеоаналитики ЧС · v3.0</div>
+            <div className="hud-label">комплекс видеоаналитики ЧС · v{APP_VERSION}</div>
           </div>
         </div>
 
