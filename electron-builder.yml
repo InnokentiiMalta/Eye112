@@ -1,0 +1,26 @@
+appId: com.eye112.app
+productName: Eye112
+
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - electron/**/*
+  - package.json
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Eye112 
+publish:
+  provider: github
+  owner: InnokentiiMalta
+  repo: Eye112
+  releaseType: draft
