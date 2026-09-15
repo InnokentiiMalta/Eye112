@@ -5,6 +5,7 @@ import DetectionPanel from './components/DetectionPanel';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
 import Viewport from './components/Viewport';
+import YOLOFireDetector from './components/YOLOFireDetector';
 import { IconDoc, IconDownload, IconSnapshot } from './components/icons';
 import type { Engine } from './lib/engine';
 import { useEngine } from './lib/engine';
@@ -119,6 +120,7 @@ export default function App() {
   const cam = CAMERAS.find((c) => c.id === engine.cameraId);
   const scn = SCENARIOS.find((s) => s.id === engine.scenario);
   const [channelOpen, setChannelOpen] = useState(false);
+  const [showYolo, setShowYolo] = useState(false);
 
   return (
     <div className="min-h-screen font-sans text-fg">
@@ -129,22 +131,30 @@ export default function App() {
           engine.speed !== 1 ? `${scn?.title ?? '—'} · ×${engine.speed}` : scn?.title ?? '—'
         }
         ready={engine.ready}
+        showYolo={showYolo}
+        onToggleYolo={() => setShowYolo(!showYolo)}
       />
 
-      <main className="mx-auto grid max-w-[1720px] gap-3 p-3 lg:grid-cols-[290px_minmax(0,1fr)_375px] lg:p-4">
-        <div className="order-3 lg:order-none">
-          <Sidebar engine={engine} onOpenChannel={() => setChannelOpen(true)} />
-        </div>
+      {showYolo ? (
+        <main className="mx-auto max-w-[1720px] p-3 lg:p-4">
+          <YOLOFireDetector />
+        </main>
+      ) : (
+        <main className="mx-auto grid max-w-[1720px] gap-3 p-3 lg:grid-cols-[290px_minmax(0,1fr)_375px] lg:p-4">
+          <div className="order-3 lg:order-none">
+            <Sidebar engine={engine} onOpenChannel={() => setChannelOpen(true)} />
+          </div>
 
-        <section className="order-1 flex min-w-0 flex-col gap-3 lg:order-none">
-          <Viewport engine={engine} />
-          <BottomDock engine={engine} />
-        </section>
+          <section className="order-1 flex min-w-0 flex-col gap-3 lg:order-none">
+            <Viewport engine={engine} />
+            <BottomDock engine={engine} />
+          </section>
 
-        <div className="order-2 lg:order-none">
-          <DetectionPanel engine={engine} />
-        </div>
-      </main>
+          <div className="order-2 lg:order-none">
+            <DetectionPanel engine={engine} />
+          </div>
+        </main>
+      )}
 
       <footer className="mx-auto max-w-[1660px] px-3 pb-4 lg:px-4">
         <p className="border-t border-line pt-3 font-mono text-[9.5px] leading-relaxed text-dim">

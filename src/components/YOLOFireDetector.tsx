@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { YoloDetector } from '../lib/yolo-detector';
-import { FIRE_CLASSES, FIRE_CLASS_COLORS } from '../lib/yolo-fire-classes';
-import type { YoloDetection } from '../lib/yolo-postprocess';
+import type { YoloDetection } from '../lib/yolo-types';
+import { FIRE_CLASS_LABELS } from '../lib/yolo-types';
 
 /**
- * Прототип компонента для детекции пожаров через YOLO.
- * Демонстрирует работу модели на изображениях и видео.
+ * Компонент YOLO Fire Detector
+ * Позволяет загружать изображения и видео для детекции пожаров
  */
 export default function YOLOFireDetector() {
   const [detector, setDetector] = useState<YoloDetector | null>(null);
@@ -14,7 +14,7 @@ export default function YOLOFireDetector() {
   const [error, setError] = useState<string | null>(null);
   const [detections, setDetections] = useState<YoloDetection[]>([]);
   const [inferenceTime, setInferenceTime] = useState(0);
-  const [modelUrl, setModelUrl] = useState('');
+  const [modelUrl, setModelUrl] = useState('/models/fire-smoke.onnx');
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -22,11 +22,7 @@ export default function YOLOFireDetector() {
 
   // Инициализация детектора
   useEffect(() => {
-    const det = new YoloDetector({
-      scoreThreshold: 0.4,
-      iouThreshold: 0.45,
-      numClasses: 3,
-    });
+    const det = new YoloDetector();
     setDetector(det);
 
     return () => {
@@ -136,8 +132,8 @@ export default function YOLOFireDetector() {
   const drawDetections = (ctx: CanvasRenderingContext2D, dets: YoloDetection[]) => {
     dets.forEach((det) => {
       const [x, y, w, h] = det.bbox;
-      const className = FIRE_CLASSES[det.classIdx] || 'unknown';
-      const color = FIRE_CLASS_COLORS[className] || '#ffffff';
+      const label = FIRE_CLASS_LABELS[det.label] || det.label;
+      const color = det.color;
 
       // Рамка
       ctx.strokeStyle = color;
@@ -145,19 +141,19 @@ export default function YOLOFireDetector() {
       ctx.strokeRect(x, y, w, h);
 
       // Подпись
-      const label = `${className} ${(det.score * 100).toFixed(1)}%`;
+      const text = `${label} ${(det.score * 100).toFixed(1)}%`;
       ctx.font = '14px Arial';
-      const textWidth = ctx.measureText(label).width;
+      const textWidth = ctx.measureText(text).width;
       ctx.fillStyle = color;
       ctx.fillRect(x, y - 20, textWidth + 10, 20);
       ctx.fillStyle = '#ffffff';
-      ctx.fillText(label, x + 5, y - 5);
+      ctx.fillText(text, x + 5, y - 5);
     });
   };
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6">🔥 YOLO Fire Detector - Прототип</h1>
+      <h1 className="text-3xl font-bold mb-6">🔥 YOLO Fire Detector</h1>
 
       {/* Загрузка модели */}
       <div className="mb-6 p-4 bg-gray-800 rounded-lg">
@@ -167,7 +163,7 @@ export default function YOLOFireDetector() {
             type="text"
             value={modelUrl}
             onChange={(e) => setModelUrl(e.target.value)}
-            placeholder="URL ONNX модели (например, /models/fire-smoke.onnx)"
+            placeholder="URL ONNX модели"
             className="flex-1 px-3 py-2 bg-gray-700 rounded text-white"
           />
           <button
@@ -242,16 +238,15 @@ export default function YOLOFireDetector() {
               </p>
               <div className="mt-2">
                 {detections.map((det, idx) => {
-                  const className = FIRE_CLASSES[det.classIdx] || 'unknown';
-                  const color = FIRE_CLASS_COLORS[className] || '#ffffff';
+                  const label = FIRE_CLASS_LABELS[det.label] || det.label;
                   return (
                     <div key={idx} className="flex items-center gap-2 text-sm">
                       <span
                         className="inline-block w-3 h-3 rounded"
-                        style={{ backgroundColor: color }}
+                        style={{ backgroundColor: det.color }}
                       />
                       <span className="text-white">
-                        {className}: {(det.score * 100).toFixed(1)}%
+                        {label}: {(det.score * 100).toFixed(1)}%
                       </span>
                       <span className="text-gray-400 text-xs">
                         [{det.bbox.map((v) => v.toFixed(0)).join(', ')}]
@@ -269,41 +264,7 @@ export default function YOLOFireDetector() {
       <div className="p-4 bg-blue-900/30 border border-blue-700 rounded-lg">
         <h2 className="text-xl font-semibold mb-3 text-blue-300">📋 Инструкция</h2>
         <ol className="list-decimal list-inside space-y-2 text-gray-300">
-          <li>
-            Получите ONNX-модель для детекции пожаров. Рекомендую:
-            <ul className="list-disc list-inside ml-6 mt-1 text-sm">
-              <li>
-                <a
-                  href="https://huggingface.co/SalahALHaismawi/yolov26-fire-detection"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-400 hover:underline"
-                >
-                  YOLOv26 Fire Detection (Hugging Face)
-                </a>{' '}
-                - 94.9% mAP@50
-              </li>
-              <li>
-                <a
-                  href="https://github.com/CVHvn/fire-smoke-detection"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-400 hover:underline"
-                >
-                  CVHvn/fire-smoke-detection
-                </a>{' '}
-                - YOLOv11 с кодом экспорта
-              </li>
-            </ul>
-          </li>
-          <li>
-            Конвертируйте модель в ONNX (если нужно):
-            <pre className="mt-1 p-2 bg-gray-900 rounded text-xs overflow-x-auto">
-{`from ultralytics import YOLO
-model = YOLO("best.pt")
-model.export(format="onnx", opset=12, dynamic=True)`}
-            </pre>
-          </li>
+          <li>Получите ONNX-модель для детекции пожаров (fire + smoke)</li>
           <li>Поместите .onnx файл в папку <code className="bg-gray-700 px-1 rounded">public/models/</code></li>
           <li>Введите URL модели (например, <code className="bg-gray-700 px-1 rounded">/models/fire-smoke.onnx</code>)</li>
           <li>Нажмите "Загрузить модель"</li>
