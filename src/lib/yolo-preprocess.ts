@@ -1,13 +1,11 @@
 /**
- * Предобработка изображения для YOLO-модели.
- * Использует чистый Canvas API (без OpenCV.js) для совместимости.
+ * Оптимизированная предобработка изображения для YOLO
  */
 
 const DEFAULT_INPUT_SIZE = 640;
 
 /**
- * Предобрабатывает ImageData в Float32Array для ONNX-модели.
- * Применяет letterbox (сохранение пропорций + padding до квадрата).
+ * Быстрая предобработка с минимальными операциями
  */
 export function preprocessImage(
   imageData: ImageData,
@@ -22,64 +20,40 @@ export function preprocessImage(
   const srcW = imageData.width;
   const srcH = imageData.height;
 
-  // Вычисляем масштаб для letterbox
-  const scale = Math.min(inputSize / srcW, inputSize / srcH);
-  const newW = Math.round(srcW * scale);
-  const newH = Math.round(srcH * scale);
-
-  // Создаём canvas для ресайза
+  // Простой resize без letterbox для скорости
   const canvas = document.createElement('canvas');
   canvas.width = inputSize;
   canvas.height = inputSize;
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-
-  // Заполняем чёрным (padding)
-  ctx.fillStyle = '#000000';
-  ctx.fillRect(0, 0, inputSize, inputSize);
-
-  // Ресайз через промежуточный canvas
-  const resizeCanvas = document.createElement('canvas');
-  resizeCanvas.width = newW;
-  resizeCanvas.height = newH;
-  const resizeCtx = resizeCanvas.getContext('2d')!;
-  resizeCtx.drawImage(
+  
+  // Быстрый resize
+  ctx.drawImage(
     imageDataToCanvas(imageData),
     0, 0, srcW, srcH,
-    0, 0, newW, newH,
+    0, 0, inputSize, inputSize
   );
 
-  // Рисуем по центру
-  const offsetX = Math.round((inputSize - newW) / 2);
-  const offsetY = Math.round((inputSize - newH) / 2);
-  ctx.drawImage(resizeCanvas, offsetX, offsetY);
-
-  // Извлекаем пиксели и нормализуем в [0, 1]
   const resizedData = ctx.getImageData(0, 0, inputSize, inputSize);
   const pixels = resizedData.data;
 
-  // YOLO ожидает формат NCHW: [1, 3, H, W]
+  // NCHW формат
   const hw = inputSize * inputSize;
   const tensor = new Float32Array(3 * hw);
 
   for (let i = 0; i < hw; i++) {
-    const r = pixels[i * 4] / 255.0;
-    const g = pixels[i * 4 + 1] / 255.0;
-    const b = pixels[i * 4 + 2] / 255.0;
-    tensor[i] = r;              // Channel 0: R
-    tensor[hw + i] = g;         // Channel 1: G
-    tensor[2 * hw + i] = b;     // Channel 2: B
+    const idx = i * 4;
+    tensor[i] = pixels[idx] / 255.0;
+    tensor[hw + i] = pixels[idx + 1] / 255.0;
+    tensor[2 * hw + i] = pixels[idx + 2] / 255.0;
   }
 
-  // Коэффициенты для обратного маппинга координат
-  const xRatio = srcW / newW;
-  const yRatio = srcH / newH;
+  // Коэффициенты для маппинга координат
+  const xRatio = srcW / inputSize;
+  const yRatio = srcH / inputSize;
 
-  return { tensor, xRatio, yRatio, offsetX, offsetY };
+  return { tensor, xRatio, yRatio, offsetX: 0, offsetY: 0 };
 }
 
-/**
- * Преобразует ImageData в HTMLCanvasElement
- */
 function imageDataToCanvas(imageData: ImageData): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = imageData.width;
@@ -87,23 +61,6 @@ function imageDataToCanvas(imageData: ImageData): HTMLCanvasElement {
   const ctx = canvas.getContext('2d')!;
   ctx.putImageData(imageData, 0, 0);
   return canvas;
-}
-
-/**
- * Получает ImageData из различных источников
- */
-export function getImageData(
-  source: HTMLCanvasElement | HTMLVideoElement | HTMLImageElement,
-): ImageData {
-  const w = 'videoWidth' in source ? source.videoWidth : source.width;
-  const h = 'videoHeight' in source ? source.videoHeight : source.height;
-
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-  ctx.drawImage(source, 0, 0, w, h);
-  return ctx.getImageData(0, 0, w, h);
 }
 
 export { DEFAULT_INPUT_SIZE };

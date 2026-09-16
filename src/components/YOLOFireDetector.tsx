@@ -1,14 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
-import { YoloDetector } from '../lib/yolo-detector';
 import type { YoloDetection } from '../lib/yolo-types';
 import { FIRE_CLASS_LABELS } from '../lib/yolo-types';
+
+// Lazy import детектора
+let YoloDetectorClass: any = null;
+const loadDetector = async () => {
+  if (!YoloDetectorClass) {
+    const module = await import('../lib/yolo-detector');
+    YoloDetectorClass = module.YoloDetector;
+  }
+  return YoloDetectorClass;
+};
 
 /**
  * Компонент YOLO Fire Detector
  * Позволяет загружать изображения и видео для детекции пожаров
  */
 export default function YOLOFireDetector() {
-  const [detector, setDetector] = useState<YoloDetector | null>(null);
+  const [detector, setDetector] = useState<any>(null);
   const [modelLoaded, setModelLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -20,13 +29,20 @@ export default function YOLOFireDetector() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const animationFrameRef = useRef<number>();
 
-  // Инициализация детектора
+  // Инициализация детектора (lazy)
   useEffect(() => {
-    const det = new YoloDetector();
-    setDetector(det);
+    let det: any = null;
+    
+    const init = async () => {
+      const DetectorClass = await loadDetector();
+      det = new DetectorClass();
+      setDetector(det);
+    };
+    
+    init();
 
     return () => {
-      det.dispose();
+      if (det) det.dispose();
     };
   }, []);
 

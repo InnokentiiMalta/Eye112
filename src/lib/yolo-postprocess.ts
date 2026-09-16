@@ -7,7 +7,7 @@ import { FIRE_CLASSES, FIRE_CLASS_COLORS, type YoloDetection } from './yolo-type
 
 /**
  * Декодирует сырой вывод модели в список детекций.
- * YOLOv8/v11 формат: [1, 4+numClasses, numPredictions]
+ * Упрощённая версия без letterbox маппинга.
  */
 export function postProcess(
   outputTensor: Float32Array,
@@ -15,21 +15,16 @@ export function postProcess(
   scoreThreshold: number,
   xRatio: number,
   yRatio: number,
-  offsetX: number,
-  offsetY: number,
-  modelInputSize: number,
 ): YoloDetection[] {
   const numPredictions = outputTensor.length / (4 + numClasses);
   const results: YoloDetection[] = [];
 
   for (let i = 0; i < numPredictions; i++) {
-    // Извлекаем bbox (cx, cy, w, h в координатах модели)
     const cx = outputTensor[i];
     const cy = outputTensor[numPredictions + i];
     const w = outputTensor[2 * numPredictions + i];
     const h = outputTensor[3 * numPredictions + i];
 
-    // Находим класс с максимальной уверенностью
     let maxScore = 0;
     let classIdx = -1;
 
@@ -43,15 +38,11 @@ export function postProcess(
 
     if (maxScore <= scoreThreshold) continue;
 
-    // Преобразуем из letterbox координат в оригинальные
-    const cxOrig = (cx - offsetX) * xRatio;
-    const cyOrig = (cy - offsetY) * yRatio;
+    // Простой маппинг координат
+    const x = (cx - w / 2) * xRatio;
+    const y = (cy - h / 2) * yRatio;
     const wOrig = w * xRatio;
     const hOrig = h * yRatio;
-
-    // Преобразуем из [cx, cy, w, h] в [x, y, w, h]
-    const x = cxOrig - wOrig / 2;
-    const y = cyOrig - hOrig / 2;
 
     const label = FIRE_CLASSES[classIdx] || 'unknown';
     const color = FIRE_CLASS_COLORS[label] || '#ffffff';
