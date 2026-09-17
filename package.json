@@ -1,6 +1,6 @@
 {
   "name": "eye112",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "main": "electron/main.cjs",
   "description": "Eye112 desktop application",
   "author": "Anikin",
@@ -8,11 +8,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node copy-wasm.js",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "electron": "electron electron/main.cjs",
-    "dist": "vite build && electron-builder"
+    "dist": "vite build && node copy-wasm.js && electron-builder"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",
@@ -33,7 +33,8 @@
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.8.0",
     "recharts": "^2.10.0",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "vite-plugin-static-copy": "^4.1.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.7",

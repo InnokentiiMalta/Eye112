@@ -3,6 +3,15 @@ const path = require('path');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
 
+// ===== Настройка путей для WASM файлов =====
+// В packaged-приложении WASM файлы находятся в resources/assets/
+const wasmPath = app.isPackaged
+  ? path.join(process.resourcesPath, 'assets')
+  : path.join(__dirname, '..', 'dist', 'assets');
+
+// Устанавливаем глобальную переменную для frontend
+process.env.ORT_WASM_PATH = wasmPath;
+
 // ===== Настройка логирования =====
 log.transports.file.level = 'debug';
 log.transports.console.level = 'debug';
@@ -60,6 +69,7 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.cjs'),
     },
   });
 

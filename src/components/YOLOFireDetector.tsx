@@ -23,11 +23,12 @@ export default function YOLOFireDetector() {
   const [error, setError] = useState<string | null>(null);
   const [detections, setDetections] = useState<YoloDetection[]>([]);
   const [inferenceTime, setInferenceTime] = useState(0);
-  const [modelUrl, setModelUrl] = useState('/models/fire-smoke.onnx');
+  const [modelUrl, setModelUrl] = useState('https://github.com/InnokentiiMalta/Eye112/releases/download/models-v1/fire-smoke.onnx');
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const animationFrameRef = useRef<number>();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Инициализация детектора (lazy)
   useEffect(() => {
@@ -57,6 +58,32 @@ export default function YOLOFireDetector() {
       await detector.loadModel(modelUrl);
       setModelLoaded(true);
       console.log('[YOLOFireDetector] Model loaded');
+    } catch (err) {
+      setError(`Ошибка загрузки модели: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      console.error('[YOLOFireDetector] Load error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Выбор файла модели
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !detector) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Создаём object URL для локального файла
+      const objectUrl = URL.createObjectURL(file);
+      await detector.loadModel(objectUrl);
+      setModelLoaded(true);
+      setModelUrl(file.name); // Показываем имя файла вместо URL
+      console.log('[YOLOFireDetector] Model loaded from file:', file.name);
+      
+      // Освобождаем URL после загрузки
+      URL.revokeObjectURL(objectUrl);
     } catch (err) {
       setError(`Ошибка загрузки модели: ${err instanceof Error ? err.message : 'Unknown error'}`);
       console.error('[YOLOFireDetector] Load error:', err);
@@ -174,7 +201,7 @@ export default function YOLOFireDetector() {
       {/* Загрузка модели */}
       <div className="mb-6 p-4 bg-gray-800 rounded-lg">
         <h2 className="text-xl font-semibold mb-3">1. Загрузка модели</h2>
-        <div className="flex gap-2">
+        <div className="flex gap-2 mb-2">
           <input
             type="text"
             value={modelUrl}
@@ -187,8 +214,25 @@ export default function YOLOFireDetector() {
             disabled={loading || !modelUrl}
             className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 rounded text-white font-semibold"
           >
-            {loading ? 'Загрузка...' : 'Загрузить модель'}
+            {loading ? 'Загрузка...' : 'Загрузить по URL'}
           </button>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".onnx"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={loading}
+            className="px-6 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 rounded text-white font-semibold"
+          >
+            Выбрать файл модели
+          </button>
+          <span className="text-sm text-gray-400">или загрузите .onnx файл с компьютера</span>
         </div>
         {modelLoaded && (
           <p className="mt-2 text-green-400">✓ Модель загружена</p>
@@ -281,9 +325,9 @@ export default function YOLOFireDetector() {
         <h2 className="text-xl font-semibold mb-3 text-blue-300">📋 Инструкция</h2>
         <ol className="list-decimal list-inside space-y-2 text-gray-300">
           <li>Получите ONNX-модель для детекции пожаров (fire + smoke)</li>
-          <li>Поместите .onnx файл в папку <code className="bg-gray-700 px-1 rounded">public/models/</code></li>
-          <li>Введите URL модели (например, <code className="bg-gray-700 px-1 rounded">/models/fire-smoke.onnx</code>)</li>
-          <li>Нажмите "Загрузить модель"</li>
+          <li>Нажмите "Выбрать файл модели" и выберите .onnx файл с компьютера</li>
+          <li>Или введите URL модели и нажмите "Загрузить по URL"</li>
+          <li>Дождитесь сообщения "✓ Модель загружена"</li>
           <li>Загрузите изображение или видео для детекции</li>
         </ol>
       </div>
