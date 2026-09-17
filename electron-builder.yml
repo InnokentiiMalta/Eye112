@@ -11,10 +11,11 @@ files:
   - package.json
   - "!node_modules/**/*"
 extraResources:
-  - from: dist/assets/
-    to: assets/
+  - from: node_modules/onnxruntime-web/dist
+    to: onnx-wasm
     filter:
       - "**/*.wasm"
+      - "**/*.mjs"
 win:
   target:
     - target: nsis
