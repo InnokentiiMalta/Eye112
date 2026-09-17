@@ -10,10 +10,11 @@ files:
   - electron/**/*
   - package.json
 extraResources:
-  - from: dist/assets/
-    to: assets/
+  - from: node_modules/onnxruntime-web/dist
+    to: onnx-wasm
     filter:
       - "**/*.wasm"
+      - "**/*.mjs"
 win:
   target:
     - target: nsis

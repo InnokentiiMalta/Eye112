@@ -23,15 +23,19 @@ export class YoloDetector {
       // Динамический импорт ONNX Runtime
       const ort = await import('onnxruntime-web');
       
-      // Настраиваем WASM пути
-      // В Electron packaged-приложении путь передаётся через window.ORT_WASM_PATH
-      // В веб-версии WASM файлы находятся в ./assets/ относительно base URL
-      const baseUrl = (window as any).ORT_WASM_PATH || './assets/';
-      ort.env.wasm.wasmPaths = baseUrl;
-      ort.env.wasm.numThreads = 1; // Один поток для экономии ресурсов
+      // Указываем путь к WASM-файлам, которые упакованы через extraResources
+      if (typeof window !== 'undefined' && (window as any).process?.resourcesPath) {
+        ort.env.wasm.wasmPaths = `${(window as any).process.resourcesPath}/onnx-wasm/`;
+      } else {
+        // В веб-версии WASM файлы находятся в ./assets/ относительно base URL
+        const baseUrl = (window as any).ORT_WASM_PATH || './assets/';
+        ort.env.wasm.wasmPaths = baseUrl;
+      }
+      // Отключаем многопоточность — в file:// протоколе недоступен SharedArrayBuffer
+      ort.env.wasm.numThreads = 1;
       
       console.log('[YoloDetector] Loading model from:', url);
-      console.log('[YoloDetector] WASM path:', baseUrl);
+      console.log('[YoloDetector] WASM path:', ort.env.wasm.wasmPaths);
       
       this.session = await ort.InferenceSession.create(url, {
         executionProviders: ['wasm'],
