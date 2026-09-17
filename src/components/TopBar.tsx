@@ -33,9 +33,11 @@ interface Props {
   cameraName: string;
   scenarioTitle: string;
   ready: boolean;
+  showYolo: boolean;
+  onToggleYolo: () => void;
 }
 
-export default function TopBar({ status, cameraName, scenarioTitle, ready }: Props) {
+export default function TopBar({ status, cameraName, scenarioTitle, ready, showYolo, onToggleYolo }: Props) {
   const chip = STATUS_CHIP[status];
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-abyss/85 backdrop-blur-sm">
@@ -62,6 +64,16 @@ export default function TopBar({ status, cameraName, scenarioTitle, ready }: Pro
         </div>
 
         <div className="ml-auto flex items-center gap-4">
+          <button
+            onClick={onToggleYolo}
+            className={`rounded-[4px] border px-3 py-1.5 font-mono text-[11px] font-bold tracking-[0.14em] transition-colors ${
+              showYolo
+                ? 'border-orange-500/50 bg-orange-500/15 text-orange-400'
+                : 'border-line bg-panel text-mut hover:border-orange-500/40 hover:text-orange-400'
+            }`}
+          >
+            🔥 YOLO
+          </button>
           <span className="hidden font-mono text-[10px] tracking-[0.18em] text-dim sm:block">
             {ready ? 'ОБРАБОТКА: ЛОКАЛЬНО · 5 ГЦ' : 'ИНИЦИАЛИЗАЦИЯ…'}
           </span>
