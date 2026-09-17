@@ -23,12 +23,21 @@ export class YoloDetector {
       // Динамический импорт ONNX Runtime
       const ort = await import('onnxruntime-web');
       
-      // Настраиваем WASM
+      // Настраиваем WASM пути
+      // В Electron packaged-приложении путь передаётся через window.ORT_WASM_PATH
+      // В веб-версии WASM файлы находятся в ./assets/ относительно base URL
+      const baseUrl = (window as any).ORT_WASM_PATH || './assets/';
+      ort.env.wasm.wasmPaths = baseUrl;
       ort.env.wasm.numThreads = 1; // Один поток для экономии ресурсов
+      
+      console.log('[YoloDetector] Loading model from:', url);
+      console.log('[YoloDetector] WASM path:', baseUrl);
       
       this.session = await ort.InferenceSession.create(url, {
         executionProviders: ['wasm'],
       });
+      
+      console.log('[YoloDetector] Model loaded successfully');
     } catch (error) {
       console.error('[YoloDetector] Load error:', error);
       throw error;

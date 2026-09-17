@@ -23,7 +23,7 @@ export default function YOLOFireDetector() {
   const [error, setError] = useState<string | null>(null);
   const [detections, setDetections] = useState<YoloDetection[]>([]);
   const [inferenceTime, setInferenceTime] = useState(0);
-  const [modelUrl, setModelUrl] = useState('/models/fire-smoke.onnx');
+  const [modelUrl, setModelUrl] = useState('https://github.com/InnokentiiMalta/Eye112/releases/download/models-v1/fire-smoke.onnx');
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);

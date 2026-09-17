@@ -9,6 +9,12 @@ files:
   - dist/**/*
   - electron/**/*
   - package.json
+  - "!node_modules/**/*"
+extraResources:
+  - from: dist/assets/
+    to: assets/
+    filter:
+      - "**/*.wasm"
 win:
   target:
     - target: nsis
