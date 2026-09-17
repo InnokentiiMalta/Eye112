@@ -9,7 +9,6 @@ files:
   - dist/**/*
   - electron/**/*
   - package.json
-  - "!node_modules/**/*"
 extraResources:
   - from: node_modules/onnxruntime-web/dist
     to: onnx-wasm
