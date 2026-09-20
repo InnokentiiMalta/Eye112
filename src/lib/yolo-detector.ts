@@ -9,7 +9,7 @@ import { postProcess, applyNMS } from './yolo-postprocess';
 
 // Путь к WASM-файлам, упакованным через extraResources (см. electron-builder.yml)
 if (typeof window !== 'undefined' && (window as any).process?.resourcesPath) {
-  ort.env.wasm.wasmPaths = `${(window as any).process.resourcesPath}/onnx-wasm/`;
+  ort.env.wasm.wasmPaths = `${(window as any).process.resourcesPath}/`;
 }
 // В file:// недоступен SharedArrayBuffer, отключаем многопоточность
 ort.env.wasm.numThreads = 1;
