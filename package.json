@@ -1,6 +1,6 @@
 {
   "name": "eye112",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "main": "electron/main.cjs",
   "description": "Eye112 desktop application",
   "author": "Anikin",
