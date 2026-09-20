@@ -2,9 +2,17 @@
  * Упрощённый YOLO детектор (без Web Worker для оптимизации)
  */
 
+import * as ort from 'onnxruntime-web';
 import type { YoloConfig, YoloResult, YoloDetection } from './yolo-types';
 import { preprocessImage } from './yolo-preprocess';
 import { postProcess, applyNMS } from './yolo-postprocess';
+
+// Путь к WASM-файлам, упакованным через extraResources (см. electron-builder.yml)
+if (typeof window !== 'undefined' && (window as any).process?.resourcesPath) {
+  ort.env.wasm.wasmPaths = `${(window as any).process.resourcesPath}/`;
+}
+// В file:// недоступен SharedArrayBuffer, отключаем многопоточность
+ort.env.wasm.numThreads = 1;
 
 export class YoloDetector {
   private session: any = null;
@@ -20,20 +28,6 @@ export class YoloDetector {
    */
   async loadModel(url: string): Promise<void> {
     try {
-      // Динамический импорт ONNX Runtime
-      const ort = await import('onnxruntime-web');
-      
-      // Указываем путь к WASM-файлам, которые упакованы через extraResources
-      if (typeof window !== 'undefined' && (window as any).process?.resourcesPath) {
-        ort.env.wasm.wasmPaths = `${(window as any).process.resourcesPath}/onnx-wasm/`;
-      } else {
-        // В веб-версии WASM файлы находятся в ./assets/ относительно base URL
-        const baseUrl = (window as any).ORT_WASM_PATH || './assets/';
-        ort.env.wasm.wasmPaths = baseUrl;
-      }
-      // Отключаем многопоточность — в file:// протоколе недоступен SharedArrayBuffer
-      ort.env.wasm.numThreads = 1;
-      
       console.log('[YoloDetector] Loading model from:', url);
       console.log('[YoloDetector] WASM path:', ort.env.wasm.wasmPaths);
       
@@ -65,7 +59,6 @@ export class YoloDetector {
     );
 
     // Создаём ONNX тензор
-    const ort = await import('onnxruntime-web');
     const inputTensor = new ort.Tensor('float32', tensor, [
       1,
       3,
