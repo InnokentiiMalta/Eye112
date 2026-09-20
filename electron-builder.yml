@@ -11,7 +11,7 @@ files:
   - package.json
 extraResources:
   - from: node_modules/onnxruntime-web/dist
-    to: onnx-wasm
+    to: "."
     filter:
       - "**/*.wasm"
       - "**/*.mjs"
