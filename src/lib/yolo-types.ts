@@ -25,7 +25,6 @@ export interface YoloResult {
 // Классы для модели детекции пожаров
 export const FIRE_CLASSES: Record<number, string> = {
   0: 'fire',
-  1: 'smoke',
 };
 
 export const FIRE_CLASS_COLORS: Record<string, string> = {
