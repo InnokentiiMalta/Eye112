@@ -17,9 +17,9 @@ ort.env.wasm.numThreads = 1;
 export class YoloDetector {
   private session: any = null;
   private config: YoloConfig = {
-    scoreThreshold: 0.4,
+    scoreThreshold: 0.25,
     iouThreshold: 0.45,
-    numClasses: 2,
+    numClasses: 1,
     modelInputSize: 640,
   };
 
@@ -71,6 +71,7 @@ export class YoloDetector {
     const output = await this.session.run({ [inputName]: inputTensor });
     const outputName = this.session.outputNames[0];
     const outputData = output[outputName].data as Float32Array;
+    console.log('[YoloDetector] Output dims:', output[outputName].dims);
 
     // Постобработка
     const rawDetections = postProcess(

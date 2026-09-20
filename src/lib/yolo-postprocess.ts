@@ -6,6 +6,13 @@
 import { FIRE_CLASSES, FIRE_CLASS_COLORS, type YoloDetection } from './yolo-types';
 
 /**
+ * Сигмоида - преобразует логиты в вероятности [0, 1]
+ */
+function sigmoid(x: number): number {
+  return 1 / (1 + Math.exp(-x));
+}
+
+/**
  * Декодирует сырой вывод модели в список детекций.
  * Упрощённая версия без letterbox маппинга.
  */
@@ -29,7 +36,9 @@ export function postProcess(
     let classIdx = -1;
 
     for (let c = 0; c < numClasses; c++) {
-      const score = outputTensor[(4 + c) * numPredictions + i];
+      const rawScore = outputTensor[(4 + c) * numPredictions + i];
+      // Применяем сигмоиду для преобразования логитов в вероятности
+      const score = sigmoid(rawScore);
       if (score > maxScore) {
         maxScore = score;
         classIdx = c;
